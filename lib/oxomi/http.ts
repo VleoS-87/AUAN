@@ -78,10 +78,18 @@ function wiederholbar(status: number | undefined): boolean {
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
+export interface AufrufOptionen {
+  /** GET (Standard) oder POST. Die Produktauskunft V2 verlangt POST mit JSON-Rumpf. */
+  methode?: 'GET' | 'POST';
+  /** Rumpf fuer POST. Wird als JSON gesendet. */
+  koerper?: unknown;
+}
+
 export async function rufeAuf(
   url: string,
   konfiguration: Pick<OxomiKonfiguration, 'zeitlimitMs' | 'maxWiederholungen'>,
   drossel: Drossel,
+  optionen: AufrufOptionen = {},
 ): Promise<AufrufErgebnis> {
   const start = Date.now();
   let versuche = 0;
@@ -92,7 +100,7 @@ export async function rufeAuf(
 
   while (versuche < maxVersuche) {
     versuche += 1;
-    const ergebnis = await drossel.fuehreAus(() => einVersuch(url, konfiguration.zeitlimitMs));
+    const ergebnis = await drossel.fuehreAus(() => einVersuch(url, konfiguration.zeitlimitMs, optionen));
 
     if (ergebnis.ok || !wiederholbar(ergebnis.httpStatus)) {
       return { ...ergebnis, dauerMs: Date.now() - start, versuche };
@@ -118,15 +126,23 @@ export async function rufeAuf(
 async function einVersuch(
   url: string,
   zeitlimitMs: number,
+  optionen: AufrufOptionen,
 ): Promise<Omit<AufrufErgebnis, 'dauerMs' | 'versuche'>> {
   const abbruch = new AbortController();
   const wecker = setTimeout(() => abbruch.abort(), zeitlimitMs);
+  const methode = optionen.methode ?? 'GET';
+
+  const kopfzeilen: Record<string, string> = {
+    Accept: 'application/json, text/plain;q=0.8, */*;q=0.5',
+  };
+  if (methode === 'POST') kopfzeilen['Content-Type'] = 'application/json';
 
   try {
     const antwort = await fetch(url, {
-      method: 'GET',
+      method: methode,
       signal: abbruch.signal,
-      headers: { Accept: 'application/json, text/plain;q=0.8, */*;q=0.5' },
+      headers: kopfzeilen,
+      body: methode === 'POST' ? JSON.stringify(optionen.koerper ?? {}) : undefined,
       cache: 'no-store',
     });
 

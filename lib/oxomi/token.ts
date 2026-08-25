@@ -4,8 +4,17 @@
  *   accessToken = md5(secret + md5(secret + portal + user + expires + roles))
  *
  * Das Shared Secret verlaesst diesen Server nie; an OXOMI geht nur das
- * errechnete Token. Der Ablaufzeitpunkt wird auf ganze Tage gerundet, damit
- * ein abgefangenes Token nicht unbegrenzt gilt.
+ * errechnete Token.
+ *
+ * `expires` ist nicht der Zeitstempel des Tagesbeginns, sondern die TAGESNUMMER:
+ * der UNIX-Zeitstempel in Sekunden ganzzahlig geteilt durch 86400. Ein Token
+ * gilt damit effektiv einen Tag; OXOMI rechnet auf seiner Seite dasselbe und
+ * laesst eine Toleranz ueber den Datumswechsel hinaus zu. Belegt in der
+ * OXOMI-Dokumentation INT63, gemessen und bestaetigt im Kalibrierlauf.
+ *
+ * `expires` wird deshalb auch NICHT als Anfrageparameter mitgeschickt - OXOMI
+ * leitet den Wert selbst aus dem Datum ab. In der Parameterliste der
+ * Produktauskunft kommt er nicht vor.
  */
 import { createHash } from 'node:crypto';
 
@@ -16,12 +25,11 @@ function md5(text: string): string {
 }
 
 /**
- * Ablaufzeitpunkt als UNIX-Zeitstempel, auf ganze Tage gerundet.
- * @param tagesOffset 0 = Beginn des heutigen Tages, 1 = Beginn des morgigen Tages (Standard).
+ * Tagesnummer als Ablaufwert.
+ * @param tagesOffset 0 = heute (Standard). Andere Werte nur fuer den Kalibrierlauf.
  */
-export function berechneExpires(jetztMs: number = Date.now(), tagesOffset = 1): number {
-  const tag = Math.floor(jetztMs / 1000 / SEKUNDEN_JE_TAG);
-  return (tag + tagesOffset) * SEKUNDEN_JE_TAG;
+export function berechneExpires(jetztMs: number = Date.now(), tagesOffset = 0): number {
+  return Math.floor(jetztMs / 1000 / SEKUNDEN_JE_TAG) + tagesOffset;
 }
 
 export interface TokenEingabe {
@@ -29,6 +37,7 @@ export interface TokenEingabe {
   portal: string;
   user: string;
   expires: number;
+  /** Komma-getrennte Rollenliste. Leer, wenn keine Rollen mitgeschickt werden. */
   rollen: string;
 }
 
@@ -40,29 +49,34 @@ export function berechneAccessToken(e: TokenEingabe): string {
 export interface Zugangsparameter {
   portal: string;
   user: string;
-  roles: string;
-  expires: string;
   accessToken: string;
+  /** Nur gesetzt, wenn Rollen benutzt werden. */
+  roles?: string;
 }
 
-/** Die Parameter, die jedem OXOMI-Aufruf beigelegt werden. Ohne Secret. */
+/**
+ * Die Parameter, die jedem OXOMI-Aufruf beigelegt werden. Ohne Secret und ohne
+ * expires - Letzteres steckt nur im Token.
+ */
 export function baueZugangsparameter(
   k: { portal: string; user: string; secret: string; rollen: string },
   jetztMs: number = Date.now(),
-  tagesOffset = 1,
+  tagesOffset = 0,
 ): Zugangsparameter {
   const expires = berechneExpires(jetztMs, tagesOffset);
-  return {
+  const rollen = k.rollen.trim();
+
+  const parameter: Zugangsparameter = {
     portal: k.portal,
     user: k.user,
-    roles: k.rollen,
-    expires: String(expires),
     accessToken: berechneAccessToken({
       secret: k.secret,
       portal: k.portal,
       user: k.user,
       expires,
-      rollen: k.rollen,
+      rollen,
     }),
   };
+  if (rollen !== '') parameter.roles = rollen;
+  return parameter;
 }

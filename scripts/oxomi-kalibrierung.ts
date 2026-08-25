@@ -133,28 +133,15 @@ function zeigeAbschnitt(html: string, marke: RegExp, laenge: number): boolean {
 }
 
 async function leseDokumentation(): Promise<void> {
-  zeile('TEIL 1 - Dokumentation lesen');
-
+  zeile('TEIL 1 - Dokumentation lesen (Suche nach den Abfragearten der Produktauskunft)');
   const produkt = await holeText('https://oxomi.com/system/api/product');
   if (produkt) {
-    zeile('  Produktauskunft V1 - vollstaendige Parameterliste:');
-    if (!zeigeAbschnitt(produkt, /Fetch Complete Information of Products V1/i, 3600)) {
-      zeile('    (Abschnitt nicht gefunden)');
+    if (!zeigeAbschnitt(produkt, /Resolve GTIN to Product/i, 2200)) {
+      zeile('    (Abschnitt Resolve-GTIN nicht gefunden)');
     }
-  }
-
-  for (const quelle of [
-    'https://oxomi.com/kba/de/INT63',
-    'https://oxomi.com/help/en/integration/authentication',
-    'https://oxomi.com/help/de/integration/authentifizierung',
-  ]) {
-    const html = await holeText(quelle);
-    if (!html) continue;
-    zeile(`  Anmeldung laut ${quelle}:`);
-    if (!zeigeAbschnitt(html, /(accessToken|Access Token|md5|Zugriffstoken)/i, 3200)) {
-      zeile('    (Abschnitt nicht gefunden)');
+    if (!zeigeAbschnitt(produkt, /Search Products via Query Text/i, 2200)) {
+      zeile('    (Abschnitt Produktsuche nicht gefunden)');
     }
-    break;
   }
   zeile();
 }
@@ -172,13 +159,13 @@ interface Variante {
 
 function baueVarianten(): Variante[] {
   const varianten: Variante[] = [];
-  for (const tagesOffset of [1, 0, 2, -1]) {
+  for (const tagesOffset of [0, 1, -1]) {
     for (const rollenSenden of [true, false]) {
-      for (const expiresSenden of [true, false]) {
+      for (const expiresSenden of [false, true]) {
         varianten.push({
-          name: `Ablauf +${tagesOffset} Tag(e), Rollen ${rollenSenden ? 'gesendet' : 'weggelassen'}, expires ${
-            expiresSenden ? 'gesendet' : 'weggelassen'
-          }`,
+          name: `Tagesnummer ${tagesOffset >= 0 ? '+' : ''}${tagesOffset}, Rollen ${
+            rollenSenden ? 'gesendet' : 'weggelassen'
+          }, expires ${expiresSenden ? 'gesendet' : 'weggelassen'}`,
           tagesOffset,
           rollenSenden,
           expiresSenden,
@@ -219,7 +206,9 @@ async function probiereAnmeldung(
 
     const url = baueUrl(konfiguration.basisUrl, PRODUKT_V1, params);
     const e = await rufeAuf(url, ohneWiederholung, drossel);
-    const gut = e.httpStatus === 200;
+    const gut =
+      e.httpStatus === 200 &&
+      (e.koerper as { success?: boolean } | undefined)?.success !== false;
     if (gut && !erfolg) erfolg = variante;
 
     zeile(`  ${gut ? 'JA  ' : 'nein'} ${variante.name} -> HTTP ${e.httpStatus ?? '-'} (${e.dauerMs} ms)`);
@@ -233,6 +222,28 @@ async function probiereAnmeldung(
 // ---------------------------------------------------------------------------
 // Teil 3: Artikel wirklich abfragen
 // ---------------------------------------------------------------------------
+
+/** Abfragearten, die die Produktauskunft V2 kennen koennte. Wird gemessen. */
+const ABFRAGEARTEN = [
+  'product-images',
+  'attachments',
+  'cover',
+  'datasheet',
+  'documents',
+  'videos',
+  'catalogs',
+  'pages',
+  'product-attributes',
+  'attributes',
+  'classification',
+  'eclass',
+  'product-details',
+  'details',
+  'texts',
+  'product-texts',
+  'brand',
+  'series',
+];
 
 async function probiereArtikel(
   konfiguration: ReturnType<typeof ladeKonfiguration>,
@@ -257,48 +268,71 @@ async function probiereArtikel(
     accessToken,
   };
   if (variante.rollenSenden) zugang.roles = konfiguration.rollen;
-  if (variante.expiresSenden) zugang.expires = String(expires);
 
-  const versuche: Array<{ name: string; pfad: string; params: Record<string, string> }> = [
-    {
-      name: 'Werksnummer als itemNumber1',
-      pfad: PRODUKT_V1,
-      params: { itemNumber1: TESTARTIKEL.werksnummer },
+  // --- 3a: Welche Abfragearten kennt das Portal? -------------------------
+  zeile('  3a) Abfragearten der Produktauskunft V2 messen');
+  const abfragen: Record<string, unknown> = {};
+  for (const art of ABFRAGEARTEN) abfragen[art] = { type: 'json' };
+
+  const v2Url = baueUrl(konfiguration.basisUrl, '/portals/api/v2/product/data', zugang);
+  const v2Antwort = await rufeAuf(v2Url, ohneWiederholung, drossel, {
+    methode: 'POST',
+    koerper: {
+      outputMode: 'normal',
+      queries: abfragen,
+      products: [{ itemNumber: TESTARTIKEL.werksnummer }],
     },
+  });
+  zeile(`     HTTP ${v2Antwort.httpStatus ?? '-'} (${v2Antwort.dauerMs} ms)`);
+  zeile(`     ${antwortAuszug(v2Antwort.koerper, v2Antwort.rohtext, 2600)}`);
+
+  // --- 3b: Welche Kennung findet den Artikel? ---------------------------
+  zeile('  3b) Welche Kennung findet den Artikel?');
+  const kennungen: Array<{ name: string; produkt: Record<string, string> }> = [
+    { name: 'Werksnummer', produkt: { itemNumber: TESTARTIKEL.werksnummer } },
     {
-      name: 'Werksnummer + Hersteller als supplierNumber1',
-      pfad: PRODUKT_V1,
-      params: { itemNumber1: TESTARTIKEL.werksnummer, supplierNumber1: TESTARTIKEL.hersteller },
+      name: 'Werksnummer + Hersteller',
+      produkt: { itemNumber: TESTARTIKEL.werksnummer, supplierNumber: TESTARTIKEL.hersteller },
     },
-    {
-      name: 'Pietsch-Nummer als itemNumber1',
-      pfad: PRODUKT_V1,
-      params: { itemNumber1: TESTARTIKEL.pietschNr },
-    },
-    {
-      name: 'EAN ueber resolve-gtin',
-      pfad: '/portals/api/v1/products/resolve-gtin',
-      params: { gtin: TESTARTIKEL.ean },
-    },
-    {
-      name: 'EAN ueber resolve-gtin (nummeriert)',
-      pfad: '/portals/api/v1/products/resolve-gtin',
-      params: { gtin1: TESTARTIKEL.ean },
-    },
-    {
-      name: 'Volltextsuche',
-      pfad: '/portals/api/v2/products/search',
-      params: { query: TESTARTIKEL.werksnummer },
-    },
+    { name: 'Pietsch-Nummer', produkt: { itemNumber: TESTARTIKEL.pietschNr } },
+    { name: 'EAN', produkt: { itemNumber: TESTARTIKEL.ean } },
   ];
 
-  for (const versuch of versuche) {
+  for (const kennung of kennungen) {
+    const e = await rufeAuf(v2Url, ohneWiederholung, drossel, {
+      methode: 'POST',
+      koerper: {
+        outputMode: 'normal',
+        queries: { 'product-images': { type: 'json', settings: { limit: 3 } } },
+        products: [kennung.produkt],
+      },
+    });
+    zeile(`     ${kennung.name} -> HTTP ${e.httpStatus ?? '-'} (${e.dauerMs} ms)`);
+    zeile(`        ${antwortAuszug(e.koerper, e.rohtext, 900)}`);
+  }
+
+  // --- 3c: EAN aufloesen und Volltextsuche ------------------------------
+  zeile('  3c) EAN aufloesen und Volltextsuche');
+  const gtinVersuche: Array<{ name: string; pfad: string; params: Record<string, string> }> = [
+    { name: 'resolve-gtin (gtin)', pfad: '/portals/api/v1/products/resolve-gtin', params: { gtin: TESTARTIKEL.ean } },
+    { name: 'resolve-gtin (gtin1)', pfad: '/portals/api/v1/products/resolve-gtin', params: { gtin1: TESTARTIKEL.ean } },
+    { name: 'resolve-gtin (number)', pfad: '/portals/api/v1/products/resolve-gtin', params: { number: TESTARTIKEL.ean } },
+  ];
+  for (const versuch of gtinVersuche) {
     const url = baueUrl(konfiguration.basisUrl, versuch.pfad, { ...zugang, ...versuch.params });
     const e = await rufeAuf(url, ohneWiederholung, drossel);
-    zeile(`  ${versuch.name} -> HTTP ${e.httpStatus ?? '-'} (${e.dauerMs} ms)`);
-    zeile(`     ${ohneGeheimnis(url)}`);
-    zeile(`     ${antwortAuszug(e.koerper, e.rohtext, 1400)}`);
+    zeile(`     ${versuch.name} -> HTTP ${e.httpStatus ?? '-'} (${e.dauerMs} ms)`);
+    zeile(`        ${ohneGeheimnis(url)}`);
+    zeile(`        ${antwortAuszug(e.koerper, e.rohtext, 700)}`);
   }
+
+  const sucheUrl = baueUrl(konfiguration.basisUrl, '/portals/api/v2/products/search', zugang);
+  const suche = await rufeAuf(sucheUrl, ohneWiederholung, drossel, {
+    methode: 'POST',
+    koerper: { query: TESTARTIKEL.werksnummer },
+  });
+  zeile(`     Volltextsuche (POST query) -> HTTP ${suche.httpStatus ?? '-'} (${suche.dauerMs} ms)`);
+  zeile(`        ${antwortAuszug(suche.koerper, suche.rohtext, 900)}`);
   zeile();
 }
 
