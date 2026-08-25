@@ -249,6 +249,11 @@ function findeText(texte: OxomiText[], typ: string): OxomiText | undefined {
 function raeumeMerkmalsnamenAuf(rohName: string, rohWert: string): string {
   let name = rohName.trim();
 
+  // Ein Merkmalsname traegt kein Komma. Steht eines darin, gehoert der vordere
+  // Teil zur vorherigen Angabe ("5660R001, EAN Nummer" -> "EAN Nummer").
+  const nachKomma = name.split(',').pop();
+  if (nachKomma && nachKomma.trim().length >= 2) name = nachKomma.trim();
+
   // Fuehrendes Kuerzel abtrennen: "B / Breite (cm)" -> "Breite (cm)"
   const kuerzel = name.match(/^[A-ZÄÖÜ]\s*\/\s*(.+)$/);
   if (kuerzel) name = kuerzel[1].trim();

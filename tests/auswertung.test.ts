@@ -208,3 +208,24 @@ test('liest Merkmale auch aus einer HTML-Beschreibung ohne normalizedText', () =
   assert.equal(alsKarte['Material'], 'Sanitärkeramik');
   assert.equal(alsKarte['Form'], 'Oval', 'die angehaengte Ueberschrift muss abgeschnitten sein');
 });
+
+test('ein Merkmalsname traegt kein Komma', () => {
+  const a = werteProduktAus({
+    itemNumber: '5660R001',
+    resolved: true,
+    queries: {
+      texts: {
+        type: 'json',
+        error: false,
+        texts: [
+          {
+            type: 'DESCRIPTION',
+            normalizedText: '5660R001, EAN Nummer: 4051202285432',
+          },
+        ],
+      },
+    },
+  });
+  assert.equal(a.fakten[0]?.name, 'EAN Nummer');
+  assert.equal(a.fakten[0]?.wert, '4051202285432');
+});

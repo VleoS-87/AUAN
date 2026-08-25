@@ -12,6 +12,8 @@ gemessen wurde:
   Antwortstruktur und offene Punkte der OXOMI-Anbindung
 - [`docs/BEFUND_SAP_EXPORT.md`](docs/BEFUND_SAP_EXPORT.md) - das echte Spaltenschema der
   SAP-Angebotsexporte, Vorarbeit fuer T-C
+- [`docs/T-A_ERGEBNIS.md`](docs/T-A_ERGEBNIS.md) - Trefferquote, Luecken und die eine
+  offene Entscheidung aus Stufe T-A
 
 ## Aufbaustand
 
