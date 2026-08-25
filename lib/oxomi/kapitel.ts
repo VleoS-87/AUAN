@@ -24,6 +24,8 @@ import type { Kapitel, Kapitelvorschlag } from './types.ts';
  */
 export const KLASSE_KAPITEL: ReadonlyArray<{ code: string; kapitel: Kapitel; bezeichnung: string }> = [
   { code: 'EC011550', kapitel: 'Waschtischanlage', bezeichnung: 'Waschbecken' },
+  { code: 'EC011382', kapitel: 'Waschtischanlage', bezeichnung: 'Waschtischunterschrank' },
+  { code: 'EC011289', kapitel: 'WC-Anlage', bezeichnung: 'WC' },
 ];
 
 /**

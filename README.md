@@ -35,7 +35,7 @@ app/                     Next.js App Router
 lib/oxomi/               OXOMI-Anreicherungsbaustein (eigenstaendiges Modul, ohne Pfad-Alias)
 lib/db/                  Datenbankzugang und versionierte Migrationen
 lib/dev/                 Zugriffsschutz und Pruefstand der /dev-Routen
-tests/                   Tests der heiklen Pfade (Preissperre, Token, Cache)
+tests/                   Tests der heiklen Pfade (Preissperre, Token, Cache, Merkmale)
 testdaten/               Testartikel, Planungsbilder, Logos, SAP-Exporte, Referenzmappe
 ```
 

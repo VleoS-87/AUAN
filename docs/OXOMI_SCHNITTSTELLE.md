@@ -68,19 +68,25 @@ auch ein Artikel ohne EAN über Werksnummer plus gelernte Lieferantennummer.
 
 Abfragearten, die dieses Portal kennt:
 
-| Abfrage | Inhalt |
-|---|---|
-| `product-images` | Bilder, je Bild vier Auflösungen plus Originaldatei |
-| `texts` | Kurzbeschreibung, Artikelbeschreibung, Langtext |
-| `attachments` | Anhänge und Dokumente |
-| `pages` | Prospektseiten |
-| `videos` | Hersteller- und Produktvideos |
-| `cover` | Titelbild-Kennzeichen |
+| Abfrage | Inhalt | wird genutzt |
+|---|---|---|
+| `features` | **Klassifikation und Merkmale** im ETIM-Schema | ja, als Faktenbasis |
+| `product-images` | Bilder, je Bild vier Auflösungen plus Originaldatei | ja |
+| `texts` | Kurzbeschreibung, Artikelbeschreibung, Langtext | ja |
+| `attachments` | Anhänge und Dokumente | ja |
+| `pages` | Prospektseiten | ja |
+| `videos` | Hersteller- und Produktvideos | nein |
+| `cover` | Titelbild-Kennzeichen | nein |
+| `properties` | Gefahrgut, Zolltarif, Lieferzeit, WEEE, Verkaufsinformationen | **nein, bewusst nicht** |
+
+`properties` bleibt draußen: Nichts davon gehört in eine Kundenmappe, und der
+Block trägt Verkaufsdaten.
 
 Abfragearten, die dieses Portal **nicht** kennt (Antwort „Cannot find … of type
-ProductDataProvider"): `attributes`, `product-attributes`, `classification`,
-`eclass`, `details`, `product-details`, `product-texts`, `brand`, `series`,
-`catalogs`, `datasheet`, `documents`.
+ProductDataProvider"): `eclass`, `classification`, `attributes`, `etim` (unter
+diesem Namen), `details`, `product-details`, `product-texts`, `brand`, `series`,
+`catalogs`, `datasheet`, `documents`, `technical-data` und 20 weitere geprüfte
+Schreibweisen.
 
 ### 4.1 Bilder
 
@@ -93,39 +99,51 @@ Bilder tragen eine Art: `COLORED_IMAGE` („Produktbild") und `MEASURED_DRAWING`
 („Vermaßte Strichzeichnung"). AUAN markiert Maßzeichnungen getrennt, weil sie in der
 Mappe gesammelt auf eine eigene Seite hinten gehören und nicht neben den Artikel.
 
-### 4.2 Merkmale — der eigentliche Kniff
+### 4.2 Klassifikation und Merkmale — die eigentliche Faktenbasis
 
-Das Portal liefert keine maschinenlesbaren Merkmale. Es liefert aber im Feld
-`normalizedText` der Artikelbeschreibung einen bereits zeilenweise gegliederten Text:
+Die Abfrage `features` liefert die Klassifikation des Artikels **und** seine
+Merkmale als saubere Name/Wert-Paare mit Schlüssel:
 
-```
-Geberit Renova Plan Waschtisch
-Verwendungszwecke
-Zum Einbau in Sanitärräumen
-Eigenschaften
-Unterbaufähig
-Reduzierte Randhöhe
-Farbe / Oberfläche
-Farbe: weiß
-Technische Eigenschaften
-Werkstoff: Sanitärkeramik
-Hahnloch: mittig
-B / Breite (cm): 55 cm
-T / Tiefe (cm): 44 cm
+```json
+{
+  "class": { "code": "EC011550", "name": "Waschbecken", "system": "metaclass" },
+  "features": [
+    { "code": "EF004567", "name": "Breite/Durchmesser", "value": "550 mm" },
+    { "code": "EF000049", "name": "Tiefe",              "value": "440 mm" },
+    { "code": "EF000003", "name": "Montageart",         "value": "Wand" },
+    { "code": "EF002169", "name": "Werkstoff",          "value": "Keramik" },
+    { "code": "EF000007", "name": "Farbe",              "value": "weiß" }
+  ]
+}
 ```
 
-Jede Zeile der Form `Merkmal: Wert` wird als Fakt übernommen, Zeilen ohne
-Doppelpunkt als freie Eigenschaft. Der Wert bleibt unverändert; nur die Beschriftung
-wird gekürzt („B / Breite (cm)" → „Breite", weil die Einheit schon im Wert steht).
+`EC…` und `EF…` sind **ETIM**-Schlüssel; OXOMI führt das System als `metaclass`.
+Das Fachkonzept hatte an dieser Stelle eCl@ss vorgesehen — ETIM erfüllt denselben
+Zweck und ist im SHK-Bereich die verbreitetere Klassifikation.
 
-Das erfüllt Grundregel 3: Maße, Material und Farbe kommen aus den Daten, nicht aus
-einer KI-Formulierung.
+Gemessene Klassen der fünf Testartikel:
+
+| Klasse | Klartext | Kapitel |
+|---|---|---|
+| `EC011550` | Waschbecken | Waschtischanlage |
+| `EC011382` | Waschtischunterschrank | Waschtischanlage |
+| `EC011289` | WC | WC-Anlage |
+
+Die Werte werden unverändert übernommen. Ausgelassen wird nur: Merkmale ohne
+Namen oder Wert, Preisfelder (Grundregel 1) und Dubletten.
+
+**Rückfall Beschreibungstext.** Fehlt die Klassifikation zu einem Artikel, liest
+AUAN die Merkmale aus dem Feld `normalizedText` der Artikelbeschreibung, das
+OXOMI bereits zeilenweise gegliedert mitliefert (Zeilen der Form `Merkmal: Wert`).
+Jedes Merkmal trägt am Ergebnis seine Herkunft — im Review und in der Mappe ist
+das der Unterschied zwischen belegt und abgeleitet.
 
 ## 5. Offene Punkte
 
 | Punkt | Stand | Wirkung |
 |---|---|---|
-| **eCl@ss** | Das Portal liefert keine Klassifikation. | Die Kapitelzuordnung stützt sich auf die Artikelbezeichnung. Die Tabelle eCl@ss → Kapitel bleibt leer, statt erfundene Codes einzutragen. Ob eCl@ss über einen anderen OXOMI-Vertrag verfügbar wäre, ist mit OXOMI zu klären. |
+| **eCl@ss** | Nicht verfügbar — dafür ETIM über `features`, gemessen bei 5 von 5 Testartikeln. | Erledigt. Die Kapitelzuordnung stützt sich auf den ETIM-Klassenschlüssel; die Tabelle ist mit den gemessenen Klassen gefüllt. |
 | **EAN im SAP-Export** | Der SAP-Export enthält keine EAN-Spalte (siehe `BEFUND_SAP_EXPORT.md`). | Der sicherste Suchweg steht im Echtbetrieb zunächst nicht zur Verfügung. Drei Wege: EAN in den Export aufnehmen, EAN aus den Stammdaten nachschlagen, oder über die gelernten Lieferantennummern gehen. **Vor T-C zu entscheiden.** |
 | **Volltextsuche** | `/portals/api/v2/products/search` antwortet auf alle geprüften Rumpfformen mit „Es wurde keine Suchanfrage übermittelt". | Der Parametername ist noch unbekannt. Nicht kritisch, solange die EAN trägt. |
-| **Datenblatt-Dienst** | `/portals/api/v1/product/datasheet/render` ist vorhanden, aber nicht ausgewertet. | Mögliche zusätzliche Faktenquelle, falls die Beschreibungstexte nicht reichen. |
+| **Datenblatt-Dienst** | `/portals/api/v1/product/datasheet/render` ist vorhanden, aber nicht ausgewertet. | Seit die Klassifikation trägt, nicht mehr nötig. Bleibt als Reserve. |
+| **Product Sync API** | Vorhanden, mit Blöcken `DETAILS, CLASSIFICATIONS, FEATURES, PROPERTIES, TEXTS, IMAGES, ATTACHMENTS, PRICES, RELATIONSHIPS, MEASUREMENTS, PACKAGES`. Liefert jeweils nur die seit dem letzten Abruf geänderten Artikel. | Interessant für den Aktualisierungslauf des Artikel-Caches (UEBERGABE.md Abschnitt 5). Der Block `PRICES` wird nie angefordert. |

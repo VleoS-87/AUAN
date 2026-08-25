@@ -57,3 +57,16 @@ test('ohne Klassifikation bleibt die Bezeichnung als Rueckfall', () => {
   assert.equal(v.kapitel, 'WC-Anlage');
   assert.equal(v.grundlage, 'bezeichnung');
 });
+
+test('die gemessenen Klassen sind eingetragen', () => {
+  const faelle: Array<[string, string]> = [
+    ['EC011550', 'Waschtischanlage'],
+    ['EC011382', 'Waschtischanlage'],
+    ['EC011289', 'WC-Anlage'],
+  ];
+  for (const [code, erwartet] of faelle) {
+    const v = schlageKapitelVor({ klassifikationCode: code });
+    assert.equal(v.kapitel, erwartet, code);
+    assert.equal(v.grundlage, 'klassifikation', code);
+  }
+});
