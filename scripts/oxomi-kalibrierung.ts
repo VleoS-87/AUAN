@@ -3,14 +3,12 @@
  *
  * Warum im Build und nicht ueber die Testroute: Die Testroute ist mit
  * APP_SECRET geschuetzt, und der Schluessel liegt bewusst nur beim
- * Auftraggeber. Der Kalibrierlauf braucht aber echte OXOMI-Antworten, um zu
- * bestimmen, welcher Dienstpfad im Pietsch-Portal antwortet. Deshalb laeuft er
- * im Vercel-Build, wo die Zugangsdaten ohnehin liegen, und schreibt sein
- * Ergebnis ins Build-Protokoll.
+ * Auftraggeber. Der Kalibrierlauf braucht aber echte OXOMI-Antworten, um die
+ * Schnittstelle zu bestimmen. Deshalb laeuft er im Vercel-Build, wo die
+ * Zugangsdaten ohnehin liegen, und schreibt sein Ergebnis ins Build-Protokoll.
  *
  * Er laeuft NUR, wenn die Marker-Datei scripts/KALIBRIERUNG_ANFORDERN im Repo
- * liegt. Ohne Marker beendet er sich sofort, ohne eine einzige Anfrage. So ist
- * im Repo jederzeit sichtbar, ob im Build nach aussen telefoniert wird.
+ * liegt. Ohne Marker beendet er sich sofort, ohne eine einzige Anfrage.
  *
  * Er gibt niemals Zugangsdaten aus: Token, Portal-Kennung und technischer
  * Benutzer sind in jeder Adresse ersetzt, das Shared Secret erscheint nirgends,
@@ -18,25 +16,23 @@
  *
  * Der Lauf bricht den Build nie ab.
  *
- * Ablauf:
- *   Teil 1  Entdeckung - liest die oeffentliche OXOMI-Bibliothek und die
- *           oeffentliche API-Uebersicht und sammelt die dort genannten
- *           Dienstpfade. Damit muss nichts geraten werden.
- *   Teil 2  Anmeldung - probiert die gefundenen Pfade mit beiden Schreibweisen
- *           der Portal-Angabe.
- *   Teil 3  Parameterformen am erfolgreichsten Pfad.
+ * Bisher gemessen (25.08.2026):
+ *   - Die Dienstpfade heissen /portals/api/v1|v2/..., nicht /service/json/...
+ *   - Die Portal-Kennung muss aus der hinterlegten Portaladresse geloest werden.
+ *     Mit Kennung antwortet OXOMI 401 (Anmeldung), mit voller Adresse 400
+ *     ("Unknown Portal") - die Kennung ist also richtig erkannt.
+ *   - Offen: die genaue Token-Bildung. Darum geht es in diesem Lauf.
  */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fehlendeZugangsdaten, ladeKonfiguration, loesePortalKennung } from '../lib/oxomi/config.ts';
 import { Drossel, rufeAuf } from '../lib/oxomi/http.ts';
 import { entfernePreisfelder } from '../lib/oxomi/preissperre.ts';
-import { baueZugangsparameter } from '../lib/oxomi/token.ts';
+import { berechneAccessToken, berechneExpires } from '../lib/oxomi/token.ts';
 
 const MARKER = join(process.cwd(), 'scripts', 'KALIBRIERUNG_ANFORDERN');
 const RAHMEN = '='.repeat(72);
 const AUSZUG = 700;
-const MAX_PFADE = 14;
 
 /** Testartikel aus testdaten/artikel/artikel_testliste.csv (Eigenmarke aktiv4YOU). */
 const TESTARTIKEL = {
@@ -46,42 +42,7 @@ const TESTARTIKEL = {
   ean: '4059625478899',
 };
 
-/** Oeffentliche Quellen, aus denen die Dienstpfade gelesen werden. */
-const QUELLEN = [
-  'https://oxomi.com/assets/oxomi.js',
-  'https://oxomi.com/system/api',
-  'https://oxomi.com/system/api/product',
-];
-
-/** Pfade, die auch dann geprueft werden, wenn die Entdeckung nichts findet. */
-const RUECKFALL_PFADE = [
-  '/service/json/product/info',
-  '/service/json/portal/attachments',
-  '/service/json/search/products',
-];
-
-const PARAMETERFORMEN: Array<{ name: string; params: Record<string, string> }> = [
-  {
-    name: 'unnummeriert (itemNumber, supplierNumber)',
-    params: { itemNumber: TESTARTIKEL.werksnummer, supplierNumber: TESTARTIKEL.hersteller },
-  },
-  {
-    name: 'nummeriert (itemNumber1, supplierNumber1)',
-    params: { itemNumber1: TESTARTIKEL.werksnummer, supplierNumber1: TESTARTIKEL.hersteller },
-  },
-  {
-    name: 'nur Werksnummer (itemNumber)',
-    params: { itemNumber: TESTARTIKEL.werksnummer },
-  },
-  {
-    name: 'nur Pietsch-Nummer (itemNumber)',
-    params: { itemNumber: TESTARTIKEL.pietschNr },
-  },
-  {
-    name: 'Volltextsuche (query)',
-    params: { query: TESTARTIKEL.werksnummer },
-  },
-];
+const PRODUKT_V1 = '/portals/api/v1/product/data';
 
 function zeile(text = ''): void {
   process.stdout.write(`[OXOMI-KALIBRIERUNG] ${text}\n`);
@@ -104,10 +65,10 @@ function baueUrl(basis: string, pfad: string, params: Record<string, string>): s
 const PREISVERDACHT =
   /(preis|netto|brutto|betrag|rabatt|kondition|w(ae|ä)hrung|currency|price|discount|\bEUR\b|€)/i;
 
-function antwortAuszug(koerper: unknown, rohtext: string | undefined): string {
+function antwortAuszug(koerper: unknown, rohtext: string | undefined, laenge = AUSZUG): string {
   if (koerper !== undefined) {
     try {
-      return JSON.stringify(entfernePreisfelder(koerper)).slice(0, AUSZUG);
+      return JSON.stringify(entfernePreisfelder(koerper)).slice(0, laenge);
     } catch {
       /* faellt auf den Rohtext zurueck */
     }
@@ -120,7 +81,7 @@ function antwortAuszug(koerper: unknown, rohtext: string | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
-// Teil 1: Entdeckung
+// Teil 1: Dokumentation lesen
 // ---------------------------------------------------------------------------
 
 async function holeText(url: string): Promise<string | null> {
@@ -142,38 +103,6 @@ async function holeText(url: string): Promise<string | null> {
   }
 }
 
-/** Sammelt aus einem Text alles, was wie ein Dienstpfad aussieht. */
-function findeDienstpfade(text: string): string[] {
-  const gefunden = new Set<string>();
-
-  // Pfade in Anfuehrungszeichen, z. B. "/service/json/portal/attachments"
-  for (const treffer of text.matchAll(/["'`](\/[A-Za-z0-9][A-Za-z0-9/_.-]{3,80})["'`]/g)) {
-    gefunden.add(treffer[1]);
-  }
-  // Vollstaendige Adressen auf oxomi.com
-  for (const treffer of text.matchAll(/https?:\/\/[a-z0-9.-]*oxomi\.com(\/[A-Za-z0-9/_.-]{3,80})/gi)) {
-    gefunden.add(treffer[1]);
-  }
-  // Zusammengesetzte Pfade wie "/service/" + format + "/..."
-  for (const treffer of text.matchAll(/["'`](\/service[A-Za-z0-9/_.-]*)["'`]/gi)) {
-    gefunden.add(treffer[1]);
-  }
-
-  return [...gefunden];
-}
-
-function istInteressant(pfad: string): boolean {
-  if (/\.(css|png|jpe?g|gif|svg|woff2?|ico|map)$/i.test(pfad)) return false;
-  return /(service|api|json)/i.test(pfad);
-}
-
-/** Ein aufrufbarer Dienst, keine Dokumentationsseite. */
-function istDienst(pfad: string): boolean {
-  if (pfad.startsWith('/system/')) return false; // das sind die Doku-Seiten selbst
-  return pfad.startsWith('/service') || /\/api\/(xml\/)?v\d/i.test(pfad);
-}
-
-/** HTML zu lesbarem Text machen. */
 function alsText(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
@@ -184,86 +113,193 @@ function alsText(html: string): string {
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-const DOKU_STICHWORTE = [
-  'itemNumber',
-  'supplierNumber',
-  'productId',
-  'accessToken',
-  'eclass',
-  'image',
-  'attribute',
-];
-
-/**
- * Zeigt die Stellen der OXOMI-Dokumentation, an denen die Parameter erklaert
- * werden. So steht die Schnittstelle belegt im Protokoll statt in einer Annahme.
- */
-function zeigeDoku(html: string, maxZeichen = 7000): void {
-  const text = alsText(html);
-  const fenster: Array<[number, number]> = [];
-
-  for (const wort of DOKU_STICHWORTE) {
-    let ab = 0;
-    for (let n = 0; n < 3; n += 1) {
-      const stelle = text.toLowerCase().indexOf(wort.toLowerCase(), ab);
-      if (stelle < 0) break;
-      fenster.push([Math.max(0, stelle - 260), Math.min(text.length, stelle + 420)]);
-      ab = stelle + wort.length;
-    }
-  }
-
-  fenster.sort((a, b) => a[0] - b[0]);
-  const zusammengefasst: Array<[number, number]> = [];
-  for (const [von, bis] of fenster) {
-    const letzter = zusammengefasst[zusammengefasst.length - 1];
-    if (letzter && von <= letzter[1] + 40) letzter[1] = Math.max(letzter[1], bis);
-    else zusammengefasst.push([von, bis]);
-  }
-
-  let ausgegeben = 0;
-  for (const [von, bis] of zusammengefasst) {
-    if (ausgegeben >= maxZeichen) break;
-    const stueck = text.slice(von, bis).slice(0, maxZeichen - ausgegeben);
-    ausgegeben += stueck.length;
-    for (let i = 0; i < stueck.length; i += 200) {
-      zeile(`    | ${stueck.slice(i, i + 200)}`);
-    }
-    zeile('    | ---');
-  }
+function drucke(text: string): void {
+  for (let i = 0; i < text.length; i += 200) zeile(`    | ${text.slice(i, i + 200)}`);
+  zeile('    | ---');
 }
 
-async function entdecke(): Promise<string[]> {
-  zeile('TEIL 1 - Entdeckung: oeffentliche OXOMI-Dokumentation lesen');
-  const alle = new Set<string>();
-  let produktDoku: string | null = null;
+/** Druckt den Abschnitt, der auf eine Marke folgt. */
+function zeigeAbschnitt(html: string, marke: RegExp, laenge: number): boolean {
+  const text = alsText(html);
+  const treffer = text.match(marke);
+  if (!treffer || treffer.index === undefined) return false;
+  drucke(text.slice(treffer.index, treffer.index + laenge));
+  return true;
+}
 
-  for (const quelle of QUELLEN) {
-    const text = await holeText(quelle);
-    if (!text) continue;
-    if (quelle.endsWith('/system/api/product')) produktDoku = text;
-    for (const pfad of findeDienstpfade(text)) {
-      if (istInteressant(pfad)) alle.add(pfad);
+async function leseDokumentation(): Promise<void> {
+  zeile('TEIL 1 - Dokumentation lesen');
+
+  const produkt = await holeText('https://oxomi.com/system/api/product');
+  if (produkt) {
+    zeile('  Produktauskunft V1 - vollstaendige Parameterliste:');
+    if (!zeigeAbschnitt(produkt, /Fetch Complete Information of Products V1/i, 3600)) {
+      zeile('    (Abschnitt nicht gefunden)');
     }
   }
 
-  const sortiert = [...alle].sort();
-  zeile(`  ${sortiert.length} Kandidaten gefunden:`);
-  for (const pfad of sortiert.slice(0, 80)) zeile(`    ${pfad}`);
-  if (sortiert.length > 80) zeile(`    ... und ${sortiert.length - 80} weitere`);
+  for (const quelle of [
+    'https://oxomi.com/kba/de/INT63',
+    'https://oxomi.com/help/en/integration/authentication',
+    'https://oxomi.com/help/de/integration/authentifizierung',
+  ]) {
+    const html = await holeText(quelle);
+    if (!html) continue;
+    zeile(`  Anmeldung laut ${quelle}:`);
+    if (!zeigeAbschnitt(html, /(accessToken|Access Token|md5|Zugriffstoken)/i, 3200)) {
+      zeile('    (Abschnitt nicht gefunden)');
+    }
+    break;
+  }
   zeile();
+}
 
-  if (produktDoku) {
-    zeile('  Auszug aus der Produktauskunft-Dokumentation:');
-    zeigeDoku(produktDoku);
-    zeile();
+// ---------------------------------------------------------------------------
+// Teil 2: Anmeldevarianten durchprobieren
+// ---------------------------------------------------------------------------
+
+interface Variante {
+  name: string;
+  tagesOffset: number;
+  rollenSenden: boolean;
+  expiresSenden: boolean;
+}
+
+function baueVarianten(): Variante[] {
+  const varianten: Variante[] = [];
+  for (const tagesOffset of [1, 0, 2, -1]) {
+    for (const rollenSenden of [true, false]) {
+      for (const expiresSenden of [true, false]) {
+        varianten.push({
+          name: `Ablauf +${tagesOffset} Tag(e), Rollen ${rollenSenden ? 'gesendet' : 'weggelassen'}, expires ${
+            expiresSenden ? 'gesendet' : 'weggelassen'
+          }`,
+          tagesOffset,
+          rollenSenden,
+          expiresSenden,
+        });
+      }
+    }
+  }
+  return varianten;
+}
+
+async function probiereAnmeldung(
+  konfiguration: ReturnType<typeof ladeKonfiguration>,
+  drossel: Drossel,
+): Promise<Variante | null> {
+  zeile('TEIL 2 - Anmeldung: Varianten der Token-Bildung');
+  const ohneWiederholung = { ...konfiguration, maxWiederholungen: 0 };
+  let erfolg: Variante | null = null;
+
+  for (const variante of baueVarianten()) {
+    const expires = berechneExpires(Date.now(), variante.tagesOffset);
+    const rollen = variante.rollenSenden ? konfiguration.rollen : '';
+    const accessToken = berechneAccessToken({
+      secret: konfiguration.secret,
+      portal: konfiguration.portal,
+      user: konfiguration.user,
+      expires,
+      rollen,
+    });
+
+    const params: Record<string, string> = {
+      portal: konfiguration.portal,
+      user: konfiguration.user,
+      accessToken,
+      itemNumber1: TESTARTIKEL.werksnummer,
+    };
+    if (variante.rollenSenden) params.roles = konfiguration.rollen;
+    if (variante.expiresSenden) params.expires = String(expires);
+
+    const url = baueUrl(konfiguration.basisUrl, PRODUKT_V1, params);
+    const e = await rufeAuf(url, ohneWiederholung, drossel);
+    const gut = e.httpStatus === 200;
+    if (gut && !erfolg) erfolg = variante;
+
+    zeile(`  ${gut ? 'JA  ' : 'nein'} ${variante.name} -> HTTP ${e.httpStatus ?? '-'} (${e.dauerMs} ms)`);
+    zeile(`       ${antwortAuszug(e.koerper, e.rohtext, 300)}`);
   }
 
-  const dienste = sortiert.filter(istDienst);
-  return dienste.length > 0 ? dienste : RUECKFALL_PFADE;
+  zeile();
+  return erfolg;
+}
+
+// ---------------------------------------------------------------------------
+// Teil 3: Artikel wirklich abfragen
+// ---------------------------------------------------------------------------
+
+async function probiereArtikel(
+  konfiguration: ReturnType<typeof ladeKonfiguration>,
+  drossel: Drossel,
+  variante: Variante,
+): Promise<void> {
+  zeile(`TEIL 3 - Artikelabfrage mit der funktionierenden Anmeldung (${variante.name})`);
+  const ohneWiederholung = { ...konfiguration, maxWiederholungen: 0 };
+
+  const expires = berechneExpires(Date.now(), variante.tagesOffset);
+  const rollen = variante.rollenSenden ? konfiguration.rollen : '';
+  const accessToken = berechneAccessToken({
+    secret: konfiguration.secret,
+    portal: konfiguration.portal,
+    user: konfiguration.user,
+    expires,
+    rollen,
+  });
+  const zugang: Record<string, string> = {
+    portal: konfiguration.portal,
+    user: konfiguration.user,
+    accessToken,
+  };
+  if (variante.rollenSenden) zugang.roles = konfiguration.rollen;
+  if (variante.expiresSenden) zugang.expires = String(expires);
+
+  const versuche: Array<{ name: string; pfad: string; params: Record<string, string> }> = [
+    {
+      name: 'Werksnummer als itemNumber1',
+      pfad: PRODUKT_V1,
+      params: { itemNumber1: TESTARTIKEL.werksnummer },
+    },
+    {
+      name: 'Werksnummer + Hersteller als supplierNumber1',
+      pfad: PRODUKT_V1,
+      params: { itemNumber1: TESTARTIKEL.werksnummer, supplierNumber1: TESTARTIKEL.hersteller },
+    },
+    {
+      name: 'Pietsch-Nummer als itemNumber1',
+      pfad: PRODUKT_V1,
+      params: { itemNumber1: TESTARTIKEL.pietschNr },
+    },
+    {
+      name: 'EAN ueber resolve-gtin',
+      pfad: '/portals/api/v1/products/resolve-gtin',
+      params: { gtin: TESTARTIKEL.ean },
+    },
+    {
+      name: 'EAN ueber resolve-gtin (nummeriert)',
+      pfad: '/portals/api/v1/products/resolve-gtin',
+      params: { gtin1: TESTARTIKEL.ean },
+    },
+    {
+      name: 'Volltextsuche',
+      pfad: '/portals/api/v2/products/search',
+      params: { query: TESTARTIKEL.werksnummer },
+    },
+  ];
+
+  for (const versuch of versuche) {
+    const url = baueUrl(konfiguration.basisUrl, versuch.pfad, { ...zugang, ...versuch.params });
+    const e = await rufeAuf(url, ohneWiederholung, drossel);
+    zeile(`  ${versuch.name} -> HTTP ${e.httpStatus ?? '-'} (${e.dauerMs} ms)`);
+    zeile(`     ${ohneGeheimnis(url)}`);
+    zeile(`     ${antwortAuszug(e.koerper, e.rohtext, 1400)}`);
+  }
+  zeile();
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +320,6 @@ async function hauptlauf(): Promise<void> {
 
   const konfiguration = ladeKonfiguration();
   const drossel = new Drossel(konfiguration.maxParallel, konfiguration.mindestabstandMs);
-  const ohneWiederholung = { ...konfiguration, maxWiederholungen: 0 };
 
   zeile(`Basisadresse: ${konfiguration.basisUrl}`);
   zeile(`Rollen: ${konfiguration.rollen}`);
@@ -296,63 +331,19 @@ async function hauptlauf(): Promise<void> {
         : 'vollstaendige Adresse, Kennung wird herausgeloest'
     }`,
   );
-  zeile('Zugangsdaten sind vollstaendig gesetzt (Werte werden nicht ausgegeben).');
   zeile();
 
-  const dienstpfade = (await entdecke()).slice(0, MAX_PFADE);
+  await leseDokumentation();
+  const variante = await probiereAnmeldung(konfiguration, drossel);
 
-  // --- Teil 2: Anmeldung mit beiden Schreibweisen der Portal-Angabe ------
-  const portalFormen: Array<{ name: string; portal: string }> = [
-    { name: 'Kennung', portal: loesePortalKennung(rohPortal) },
-  ];
-  if (rohPortal !== loesePortalKennung(rohPortal)) {
-    portalFormen.push({ name: 'vollstaendige Adresse', portal: rohPortal });
-  }
-
-  zeile(`TEIL 2 - Anmeldung: ${dienstpfade.length} Dienstpfade x ${portalFormen.length} Portal-Schreibweise(n)`);
-  const treffer: Array<{ pfad: string; portalForm: string }> = [];
-
-  for (const form of portalFormen) {
-    const zugang: Record<string, string> = {
-      ...baueZugangsparameter({ ...konfiguration, portal: form.portal }, Date.now(), 1),
-    };
-    zeile(`  Portal-Schreibweise: ${form.name}`);
-    for (const pfad of dienstpfade) {
-      const url = baueUrl(konfiguration.basisUrl, pfad, { ...zugang, ...PARAMETERFORMEN[0].params });
-      const e = await rufeAuf(url, ohneWiederholung, drossel);
-      const gut = e.ok && e.koerper !== undefined;
-      if (gut) treffer.push({ pfad, portalForm: form.name });
-      zeile(`    ${gut ? 'JA  ' : 'nein'} ${pfad}  HTTP ${e.httpStatus ?? '-'} (${e.dauerMs} ms)`);
-      zeile(`         ${antwortAuszug(e.koerper, e.rohtext)}`);
-    }
-    zeile();
-  }
-
-  // --- Teil 3: Parameterformen am erfolgreichsten Pfad -------------------
-  if (treffer.length === 0) {
-    zeile('TEIL 3 entfaellt: kein Dienstpfad hat JSON geliefert.');
+  if (!variante) {
+    zeile('TEIL 3 entfaellt: keine Anmeldevariante wurde angenommen.');
     zeile(RAHMEN);
     return;
   }
 
-  const ziel = treffer[0];
-  const zielPortal =
-    ziel.portalForm === 'Kennung' ? loesePortalKennung(rohPortal) : rohPortal;
-  const zugang: Record<string, string> = {
-    ...baueZugangsparameter({ ...konfiguration, portal: zielPortal }, Date.now(), 1),
-  };
-
-  zeile(`TEIL 3 - Parameterformen am Pfad ${ziel.pfad} (Portal als ${ziel.portalForm})`);
-  for (const form of PARAMETERFORMEN) {
-    const url = baueUrl(konfiguration.basisUrl, ziel.pfad, { ...zugang, ...form.params });
-    const e = await rufeAuf(url, ohneWiederholung, drossel);
-    zeile(`  ${form.name} -> HTTP ${e.httpStatus ?? '-'} (${e.dauerMs} ms) ${e.fehler ?? ''}`);
-    zeile(`     ${ohneGeheimnis(url)}`);
-    zeile(`     ${antwortAuszug(e.koerper, e.rohtext)}`);
-  }
-
-  zeile();
-  zeile(`Ergebnis: ${treffer.length} Treffer. Erster: ${ziel.pfad} (Portal als ${ziel.portalForm}).`);
+  await probiereArtikel(konfiguration, drossel, variante);
+  zeile(`Ergebnis: Anmeldung funktioniert mit "${variante.name}".`);
   zeile(RAHMEN);
 }
 
