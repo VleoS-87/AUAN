@@ -167,13 +167,84 @@ function istInteressant(pfad: string): boolean {
   return /(service|api|json)/i.test(pfad);
 }
 
+/** Ein aufrufbarer Dienst, keine Dokumentationsseite. */
+function istDienst(pfad: string): boolean {
+  if (pfad.startsWith('/system/')) return false; // das sind die Doku-Seiten selbst
+  return pfad.startsWith('/service') || /\/api\/(xml\/)?v\d/i.test(pfad);
+}
+
+/** HTML zu lesbarem Text machen. */
+function alsText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const DOKU_STICHWORTE = [
+  'itemNumber',
+  'supplierNumber',
+  'productId',
+  'accessToken',
+  'eclass',
+  'image',
+  'attribute',
+];
+
+/**
+ * Zeigt die Stellen der OXOMI-Dokumentation, an denen die Parameter erklaert
+ * werden. So steht die Schnittstelle belegt im Protokoll statt in einer Annahme.
+ */
+function zeigeDoku(html: string, maxZeichen = 7000): void {
+  const text = alsText(html);
+  const fenster: Array<[number, number]> = [];
+
+  for (const wort of DOKU_STICHWORTE) {
+    let ab = 0;
+    for (let n = 0; n < 3; n += 1) {
+      const stelle = text.toLowerCase().indexOf(wort.toLowerCase(), ab);
+      if (stelle < 0) break;
+      fenster.push([Math.max(0, stelle - 260), Math.min(text.length, stelle + 420)]);
+      ab = stelle + wort.length;
+    }
+  }
+
+  fenster.sort((a, b) => a[0] - b[0]);
+  const zusammengefasst: Array<[number, number]> = [];
+  for (const [von, bis] of fenster) {
+    const letzter = zusammengefasst[zusammengefasst.length - 1];
+    if (letzter && von <= letzter[1] + 40) letzter[1] = Math.max(letzter[1], bis);
+    else zusammengefasst.push([von, bis]);
+  }
+
+  let ausgegeben = 0;
+  for (const [von, bis] of zusammengefasst) {
+    if (ausgegeben >= maxZeichen) break;
+    const stueck = text.slice(von, bis).slice(0, maxZeichen - ausgegeben);
+    ausgegeben += stueck.length;
+    for (let i = 0; i < stueck.length; i += 200) {
+      zeile(`    | ${stueck.slice(i, i + 200)}`);
+    }
+    zeile('    | ---');
+  }
+}
+
 async function entdecke(): Promise<string[]> {
-  zeile('TEIL 1 - Entdeckung: oeffentliche OXOMI-Bibliothek und API-Uebersicht lesen');
+  zeile('TEIL 1 - Entdeckung: oeffentliche OXOMI-Dokumentation lesen');
   const alle = new Set<string>();
+  let produktDoku: string | null = null;
 
   for (const quelle of QUELLEN) {
     const text = await holeText(quelle);
     if (!text) continue;
+    if (quelle.endsWith('/system/api/product')) produktDoku = text;
     for (const pfad of findeDienstpfade(text)) {
       if (istInteressant(pfad)) alle.add(pfad);
     }
@@ -185,8 +256,13 @@ async function entdecke(): Promise<string[]> {
   if (sortiert.length > 80) zeile(`    ... und ${sortiert.length - 80} weitere`);
   zeile();
 
-  // Fuer die Anmeldeprobe zaehlen nur Pfade unterhalb von /service.
-  const dienste = sortiert.filter((p) => p.startsWith('/service'));
+  if (produktDoku) {
+    zeile('  Auszug aus der Produktauskunft-Dokumentation:');
+    zeigeDoku(produktDoku);
+    zeile();
+  }
+
+  const dienste = sortiert.filter(istDienst);
   return dienste.length > 0 ? dienste : RUECKFALL_PFADE;
 }
 
