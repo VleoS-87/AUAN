@@ -9,7 +9,7 @@
  * gegen das Interface ArtikelCacheSpeicher. Fuer AUAN gibt es die
  * Postgres-Umsetzung, fuer Tests eine im Arbeitsspeicher.
  */
-import type { ArtikelDaten, ArtikelSchluessel } from './types';
+import type { ArtikelDaten, ArtikelSchluessel } from './types.ts';
 
 export interface CacheEintrag {
   daten: ArtikelDaten;

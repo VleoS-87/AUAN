@@ -1,242 +1,263 @@
 /**
- * Wandelt eine OXOMI-Antwort in die AUAN-Artikeldaten.
+ * Wandelt eine OXOMI-Produktantwort in AUAN-Artikeldaten.
  *
- * Der Auswerter ist bewusst tolerant gebaut: Er sucht in der Antwortstruktur
- * nach Bildern, Merkmalen und der eCl@ss-Angabe, statt eine feste Feldstruktur
- * vorauszusetzen. Grund: Die genaue Antwortform der Produktauskunft ist erst
- * nach dem Kalibrierlauf gegen das echte Portal belegt (siehe suchwege.ts).
- * Er erfindet dabei nichts - er liest nur, was in den Daten steht
- * (Grundregel 3 aus UEBERGABE.md Abschnitt 2).
+ * Die Zuordnung folgt der im Kalibrierlauf gemessenen Antwortstruktur
+ * (siehe endpunkte.ts). Sie liest nur, was in den Daten steht, und erfindet
+ * nichts (Grundregel 3 aus UEBERGABE.md Abschnitt 2).
+ *
+ * Besonderheit dieses Portals: Es liefert keine maschinenlesbaren Merkmale und
+ * keine eCl@ss-Klassifikation. Die Merkmale stecken im Beschreibungstext, den
+ * OXOMI in `normalizedText` bereits sauber in Zeilen zerlegt mitliefert -
+ * Abschnittsueberschriften und darunter Zeilen der Form "Merkmal: Wert".
+ * Genau diese Zeilen werden ausgelesen. Das ist Uebernahme aus den Daten,
+ * keine Interpretation.
  */
-import { istPreisFeld } from './preissperre';
-import type { ArtikelBild, ArtikelDokument, ArtikelFakt, EclassInfo } from './types';
+import { istPreisFeld } from './preissperre.ts';
+import {
+  ABFRAGEARTEN,
+  abfragenAlsKarte,
+  type OxomiBild,
+  type OxomiDokument,
+  type OxomiProdukt,
+  type OxomiText,
+} from './endpunkte.ts';
+import type { ArtikelBild, ArtikelDokument, ArtikelFakt } from './types.ts';
 
-const MAX_BILDER = 30;
-const MAX_FAKTEN = 60;
+const MAX_BILDER = 20;
+const MAX_FAKTEN = 40;
 const MAX_DOKUMENTE = 20;
-const MAX_TIEFE = 14;
-
-const BILD_ENDUNGEN = /\.(jpe?g|png|webp|gif|tiff?|bmp)(\?|#|$)/i;
-const DOKUMENT_ENDUNGEN = /\.(pdf)(\?|#|$)/i;
-
-const SCHLUESSEL_BILD = /(bild|image|picture|photo|foto|thumb|preview|vorschau|media|asset)/i;
-const SCHLUESSEL_URL = /^(url|link|href|src|uri|downloadurl|imageurl|bildurl)$/i;
-const SCHLUESSEL_MERKMALE = /(attribut|merkmal|feature|propert|eigenschaft|characteristic|spezifikation|technisch)/i;
-const SCHLUESSEL_ECLASS = /(eclass|ecl@?ss|classification|klassifik)/i;
-const SCHLUESSEL_HERSTELLER = /^(supplier|suppliername|hersteller|manufacturer|brand|marke|lieferant)(name)?$/i;
-const SCHLUESSEL_SERIE = /^(serie|series|range|produktlinie|linie|programm|collection)$/i;
-const SCHLUESSEL_BEZEICHNUNG = /^(name|title|titel|bezeichnung|shorttext|kurztext|productname|itemname)$/i;
-const SCHLUESSEL_LANGTEXT = /^(longtext|langtext|description|beschreibung|text|produkttext|marketingtext)$/i;
-
-const NAMENSFELDER = ['name', 'label', 'bezeichnung', 'key', 'schluessel', 'titel', 'title', 'caption', 'merkmal'];
-const WERTFELDER = ['value', 'wert', 'val', 'content', 'inhalt', 'text', 'auspraegung'];
-const EINHEITFELDER = ['unit', 'einheit', 'uom', 'masseinheit'];
 
 export interface Auswertung {
   bezeichnung?: string;
   langtext?: string;
   hersteller?: string;
-  serie?: string;
   bilder: ArtikelBild[];
   fakten: ArtikelFakt[];
-  eclass: EclassInfo | null;
   dokumente: ArtikelDokument[];
-  /** Anzahl der im Rumpf gefundenen Objekte, die wie ein Artikel aussehen. */
-  artikelObjekte: number;
+  /** Freitext-Eigenschaften ohne Merkmalsnamen, z. B. "Unterbaufaehig". */
+  eigenschaften: string[];
+  gefunden: boolean;
 }
 
-export function werteAus(rumpf: unknown): Auswertung {
-  const bilder = new Map<string, ArtikelBild>();
-  const dokumente = new Map<string, ArtikelDokument>();
-  const fakten: ArtikelFakt[] = [];
-
-  let bezeichnung: string | undefined;
-  let langtext: string | undefined;
-  let hersteller: string | undefined;
-  let serie: string | undefined;
-  let eclass: EclassInfo | null = null;
-  let artikelObjekte = 0;
-
-  const besuche = (wert: unknown, pfad: string[], tiefe: number): void => {
-    if (tiefe > MAX_TIEFE || wert === null || wert === undefined) return;
-
-    if (Array.isArray(wert)) {
-      for (const eintrag of wert) besuche(eintrag, pfad, tiefe + 1);
-      return;
-    }
-
-    if (typeof wert === 'string') {
-      sammleUrl(wert, pfad, bilder, dokumente);
-      return;
-    }
-
-    if (typeof wert !== 'object') return;
-
-    const objekt = wert as Record<string, unknown>;
-    const schluessel = Object.keys(objekt);
-
-    if (schluessel.some((s) => /^(itemnumber|artikelnummer|productid|supplierid)$/i.test(s))) {
-      artikelObjekte += 1;
-    }
-
-    // Name/Wert-Paar? Dann ist es ein Merkmal.
-    const fakt = alsFakt(objekt);
-    if (fakt) {
-      if (fakten.length < MAX_FAKTEN && !fakten.some((f) => f.name === fakt.name && f.wert === fakt.wert)) {
-        fakten.push(fakt);
-      }
-      // Ein Merkmal kann trotzdem ein Bild verlinken - weiterlaufen.
-    }
-
-    // Bildobjekt? Erkennbar an einem URL-Feld im Bildkontext.
-    const bild = alsBild(objekt);
-    if (bild && !bilder.has(bild.url) && bilder.size < MAX_BILDER) {
-      bilder.set(bild.url, bild);
-    }
-
-    for (const [s, inhalt] of Object.entries(objekt)) {
-      if (istPreisFeld(s)) continue; // Grundregel 1
-
-      const unterPfad = [...pfad, s];
-
-      if (typeof inhalt === 'string' && inhalt.trim() !== '') {
-        const text = inhalt.trim();
-        if (!bezeichnung && SCHLUESSEL_BEZEICHNUNG.test(s) && text.length <= 200) bezeichnung = text;
-        else if (!langtext && SCHLUESSEL_LANGTEXT.test(s) && text.length > 60) langtext = text;
-        if (!hersteller && SCHLUESSEL_HERSTELLER.test(s) && text.length <= 120) hersteller = text;
-        if (!serie && SCHLUESSEL_SERIE.test(s) && text.length <= 120) serie = text;
-        if (!eclass && SCHLUESSEL_ECLASS.test(s) && /\d/.test(text)) {
-          eclass = { code: text };
-        }
-      }
-
-      if (!eclass && SCHLUESSEL_ECLASS.test(s) && inhalt && typeof inhalt === 'object') {
-        eclass = alsEclass(inhalt as Record<string, unknown>);
-      }
-
-      besuche(inhalt, unterPfad, tiefe + 1);
-    }
+export function werteProduktAus(produkt: OxomiProdukt | undefined): Auswertung {
+  const leer: Auswertung = {
+    bilder: [],
+    fakten: [],
+    dokumente: [],
+    eigenschaften: [],
+    gefunden: false,
   };
+  if (!produkt) return leer;
 
-  besuche(rumpf, [], 0);
+  const abfragen = abfragenAlsKarte(produkt);
+
+  const bilder = werteBilderAus(abfragen[ABFRAGEARTEN.bilder]?.images ?? []);
+  const texte = abfragen[ABFRAGEARTEN.texte]?.texts ?? [];
+  const dokumente = werteDokumenteAus([
+    ...(abfragen[ABFRAGEARTEN.anhaenge]?.attachments ?? []),
+    ...(abfragen[ABFRAGEARTEN.anhaenge]?.documents ?? []),
+    ...(abfragen[ABFRAGEARTEN.seiten]?.documents ?? []),
+  ]);
+
+  const { bezeichnung, langtext, fakten, eigenschaften, hersteller } = werteTexteAus(texte);
 
   return {
     bezeichnung,
     langtext,
     hersteller,
-    serie,
-    bilder: [...bilder.values()],
+    bilder,
     fakten,
-    eclass,
-    dokumente: [...dokumente.values()].slice(0, MAX_DOKUMENTE),
-    artikelObjekte,
+    dokumente,
+    eigenschaften,
+    gefunden: produkt.resolved === true,
   };
 }
 
-function textVon(objekt: Record<string, unknown>, felder: string[]): string | undefined {
-  for (const feld of felder) {
-    for (const [s, wert] of Object.entries(objekt)) {
-      if (s.toLowerCase() !== feld) continue;
-      if (typeof wert === 'string' && wert.trim() !== '') return wert.trim();
-      if (typeof wert === 'number' || typeof wert === 'boolean') return String(wert);
-    }
+// ---------------------------------------------------------------------------
+// Bilder
+// ---------------------------------------------------------------------------
+
+/** OXOMI-Bildarten, die eine Massskizze bezeichnen. */
+const MASSZEICHNUNG = /(MEASURED_DRAWING|DIMENSION|SKETCH)/i;
+const MASSZEICHNUNG_TEXT = /(zeichnung|masszeichnung|maßzeichnung|skizze)/i;
+
+/** Bilder, die in einer Kundenmappe nichts verloren haben. */
+const NICHT_ZEIGEN = /(LOGO|BRAND_ICON|ICON)/i;
+
+function werteBilderAus(bilder: OxomiBild[]): ArtikelBild[] {
+  const ergebnis: ArtikelBild[] = [];
+  const gesehen = new Set<string>();
+
+  for (const bild of bilder) {
+    if (ergebnis.length >= MAX_BILDER) break;
+    if (bild.type && NICHT_ZEIGEN.test(bild.type)) continue;
+
+    // Hoechste im Browser und im Druck nutzbare Aufloesung zuerst. Die
+    // Originaldatei kann ein Druckformat wie EPS sein, das kein Browser zeigt.
+    const anzeige = bild.hdImageUrl ?? bild.mediumImageUrl ?? bild.previewImageUrl;
+    if (!anzeige) continue;
+
+    const schluessel = bild.fingerprint ?? anzeige;
+    if (gesehen.has(schluessel)) continue;
+    gesehen.add(schluessel);
+
+    const art = bild.typeName ?? bild.type;
+    const beschreibung = bild.description ?? undefined;
+
+    ergebnis.push({
+      url: anzeige,
+      ...(bild.mediumImageUrl || bild.previewImageUrl
+        ? { vorschauUrl: bild.previewImageUrl ?? bild.mediumImageUrl }
+        : {}),
+      ...(bild.downloadUrl ? { originalUrl: bild.downloadUrl } : {}),
+      ...(art ? { art } : {}),
+      ...(beschreibung ? { titel: beschreibung } : {}),
+      istMasszeichnung:
+        MASSZEICHNUNG.test(bild.type ?? '') ||
+        MASSZEICHNUNG_TEXT.test(art ?? '') ||
+        MASSZEICHNUNG_TEXT.test(beschreibung ?? ''),
+      quelle: 'oxomi',
+    });
   }
-  return undefined;
+
+  // Produktbilder zuerst, Maßzeichnungen ans Ende: In der Mappe stehen sie
+  // gesammelt auf einer eigenen Seite hinten (UEBERGABE.md Abschnitt 7).
+  return ergebnis.sort((a, b) => Number(a.istMasszeichnung) - Number(b.istMasszeichnung));
 }
 
-function alsFakt(objekt: Record<string, unknown>): ArtikelFakt | null {
-  const name = textVon(objekt, NAMENSFELDER);
-  const wert = textVon(objekt, WERTFELDER);
-  if (!name || !wert) return null;
-  if (name.length > 80 || wert.length > 300) return null;
-  if (istPreisFeld(name)) return null; // Grundregel 1
-  const einheit = textVon(objekt, EINHEITFELDER);
-  return { name, wert, ...(einheit ? { einheit } : {}), quelle: 'oxomi' };
+// ---------------------------------------------------------------------------
+// Dokumente
+// ---------------------------------------------------------------------------
+
+function werteDokumenteAus(dokumente: OxomiDokument[]): ArtikelDokument[] {
+  const ergebnis: ArtikelDokument[] = [];
+  const gesehen = new Set<string>();
+
+  for (const dokument of dokumente) {
+    if (ergebnis.length >= MAX_DOKUMENTE) break;
+    const url = dokument.mediumUrl ?? dokument.previewUrl ?? dokument.pages?.[0]?.mediumUrl;
+    if (!url || gesehen.has(url)) continue;
+    gesehen.add(url);
+    ergebnis.push({
+      url,
+      ...(dokument.name ? { titel: dokument.name } : {}),
+      ...(dokument.brand ? { art: dokument.brand } : {}),
+    });
+  }
+  return ergebnis;
 }
 
-function alsBild(objekt: Record<string, unknown>): ArtikelBild | null {
-  let url: string | undefined;
-  for (const [s, wert] of Object.entries(objekt)) {
-    if (typeof wert !== 'string' || wert.trim() === '') continue;
-    if (SCHLUESSEL_URL.test(s) || SCHLUESSEL_BILD.test(s)) {
-      if (istBildUrl(wert)) {
-        url = wert.trim();
-        break;
+// ---------------------------------------------------------------------------
+// Texte, Merkmale, Eigenschaften
+// ---------------------------------------------------------------------------
+
+/** Ueberschriften im Beschreibungstext, unter denen Merkmale stehen. */
+const MERKMALS_ABSCHNITTE =
+  /^(technische eigenschaften|masse|maße|abmessungen|farbe ?\/ ?oberflaeche|farbe ?\/ ?oberfläche|material|ausfuehrung|ausführung|lieferumfang|allgemein)/i;
+/** Ueberschriften, unter denen freie Aufzaehlungen stehen. */
+const EIGENSCHAFTS_ABSCHNITTE = /^(eigenschaften|verwendungszwecke|merkmale|besonderheiten|vorteile)/i;
+
+function werteTexteAus(texte: OxomiText[]): {
+  bezeichnung?: string;
+  langtext?: string;
+  hersteller?: string;
+  fakten: ArtikelFakt[];
+  eigenschaften: string[];
+} {
+  const kurz = findeText(texte, 'SHORT_DESCRIPTION');
+  const beschreibung = findeText(texte, 'DESCRIPTION');
+  const lang = findeText(texte, 'LONG_TEXT');
+
+  const fakten: ArtikelFakt[] = [];
+  const eigenschaften: string[] = [];
+
+  // Der normalisierte Text ist bereits zeilenweise gegliedert - genau die Form,
+  // aus der sich Merkmale verlaesslich lesen lassen.
+  const zeilen = (beschreibung?.normalizedText ?? '')
+    .split('\n')
+    .map((z) => z.trim())
+    .filter((z) => z !== '');
+
+  let inMerkmalen = false;
+  let inEigenschaften = false;
+
+  for (const zeile of zeilen) {
+    const paar = zeile.match(/^(.{2,60}?):\s*(.+)$/);
+
+    if (!paar) {
+      // Zeile ohne Doppelpunkt: entweder Ueberschrift oder freie Aufzaehlung.
+      if (MERKMALS_ABSCHNITTE.test(zeile)) {
+        inMerkmalen = true;
+        inEigenschaften = false;
+      } else if (EIGENSCHAFTS_ABSCHNITTE.test(zeile)) {
+        inMerkmalen = false;
+        inEigenschaften = true;
+      } else if (inEigenschaften && zeile.length <= 160 && eigenschaften.length < 12) {
+        eigenschaften.push(zeile);
+      } else if (zeile.length < 60 && /^[A-ZÄÖÜ]/.test(zeile)) {
+        // Kurze Zeile in Grossschreibung ohne Doppelpunkt: weitere Ueberschrift.
+        inMerkmalen = false;
+        inEigenschaften = false;
       }
+      continue;
     }
-  }
-  if (!url) return null;
 
-  const breite = zahlVon(objekt, ['width', 'breite', 'pixelwidth']);
-  const hoehe = zahlVon(objekt, ['height', 'hoehe', 'pixelheight']);
-  const art = textVon(objekt, ['type', 'typ', 'art', 'kind', 'category', 'kategorie']);
-  const titel = textVon(objekt, ['title', 'titel', 'name', 'bezeichnung', 'caption']);
-  const vorschau = ersteBildUrl(objekt, ['thumbnail', 'thumb', 'preview', 'vorschau', 'small']);
+    const [, rohName, rohWert] = paar;
+    const name = raeumeMerkmalsnamenAuf(rohName, rohWert);
+    const wert = rohWert.trim();
+
+    if (istPreisFeld(name)) continue; // Grundregel 1
+    if (wert.length > 200 || fakten.length >= MAX_FAKTEN) continue;
+    if (fakten.some((f) => f.name === name)) continue;
+
+    fakten.push({ name, wert, quelle: 'oxomi' });
+    // Ein Merkmalspaar ausserhalb eines Merkmalsabschnitts zaehlt trotzdem;
+    // die Abschnitte steuern nur, was mit Zeilen OHNE Doppelpunkt passiert.
+    void inMerkmalen;
+  }
+
+  const langtext = lang?.normalizedText ?? lang?.optimizedText ?? beschreibung?.normalizedText;
+  const hersteller = kurz?.optimizedText ? ersteWortgruppe(kurz.optimizedText) : undefined;
 
   return {
-    url,
-    ...(vorschau ? { vorschauUrl: vorschau } : {}),
-    ...(breite ? { breite } : {}),
-    ...(hoehe ? { hoehe } : {}),
-    ...(art ? { art } : {}),
-    ...(titel ? { titel } : {}),
-    quelle: 'oxomi' as const,
+    bezeichnung: kurz?.optimizedText ?? kurz?.normalizedText,
+    langtext,
+    hersteller,
+    fakten,
+    eigenschaften,
   };
 }
 
-function ersteBildUrl(objekt: Record<string, unknown>, felder: string[]): string | undefined {
-  for (const [s, wert] of Object.entries(objekt)) {
-    if (typeof wert !== 'string') continue;
-    if (felder.some((f) => s.toLowerCase().includes(f)) && istBildUrl(wert)) return wert.trim();
-  }
-  return undefined;
+function findeText(texte: OxomiText[], typ: string): OxomiText | undefined {
+  return texte.find((t) => (t.type ?? '').toUpperCase() === typ);
 }
 
-function zahlVon(objekt: Record<string, unknown>, felder: string[]): number | undefined {
-  for (const [s, wert] of Object.entries(objekt)) {
-    if (!felder.includes(s.toLowerCase())) continue;
-    const n = typeof wert === 'number' ? wert : Number(wert);
-    if (Number.isFinite(n) && n > 0) return n;
-  }
-  return undefined;
-}
+/**
+ * Macht aus "B / Breite (cm)" ein "Breite", wenn der Wert die Einheit ohnehin
+ * schon traegt. Verkuerzt nur die Beschriftung, nie den Wert.
+ */
+function raeumeMerkmalsnamenAuf(rohName: string, rohWert: string): string {
+  let name = rohName.trim();
 
-function istBildUrl(wert: string): boolean {
-  const t = wert.trim();
-  if (!/^https?:\/\//i.test(t) && !t.startsWith('//')) return false;
-  return BILD_ENDUNGEN.test(t) || /(image|bild|thumb|preview|media)/i.test(t);
-}
+  // Fuehrendes Kuerzel abtrennen: "B / Breite (cm)" -> "Breite (cm)"
+  const kuerzel = name.match(/^[A-ZÄÖÜ]\s*\/\s*(.+)$/);
+  if (kuerzel) name = kuerzel[1].trim();
 
-function sammleUrl(
-  wert: string,
-  pfad: string[],
-  bilder: Map<string, ArtikelBild>,
-  dokumente: Map<string, ArtikelDokument>,
-): void {
-  const t = wert.trim();
-  if (!/^https?:\/\//i.test(t)) return;
-  const letzterSchluessel = pfad[pfad.length - 1] ?? '';
-
-  if (DOKUMENT_ENDUNGEN.test(t)) {
-    if (!dokumente.has(t)) dokumente.set(t, { url: t, art: letzterSchluessel || undefined });
-    return;
+  // Einheit in Klammern weglassen, wenn sie im Wert schon steht.
+  const einheit = name.match(/^(.+?)\s*\(([^)]{1,8})\)$/);
+  if (einheit && new RegExp(`\\b${escapeRegex(einheit[2])}\\b`, 'i').test(rohWert)) {
+    name = einheit[1].trim();
   }
 
-  if (BILD_ENDUNGEN.test(t) || (SCHLUESSEL_BILD.test(letzterSchluessel) && istBildUrl(t))) {
-    if (!bilder.has(t) && bilder.size < MAX_BILDER) {
-      bilder.set(t, { url: t, quelle: 'oxomi', art: letzterSchluessel || undefined });
-    }
-  }
+  return name;
 }
 
-function alsEclass(objekt: Record<string, unknown>): EclassInfo | null {
-  const code =
-    textVon(objekt, ['code', 'key', 'schluessel', 'id', 'number', 'nummer', 'classid', 'value', 'wert']) ??
-    undefined;
-  if (!code || !/\d/.test(code)) return null;
-  return {
-    code,
-    version: textVon(objekt, ['version', 'release']),
-    bezeichnung: textVon(objekt, ['name', 'label', 'bezeichnung', 'title', 'titel', 'description']),
-  };
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Erstes Wort der Kurzbeschreibung, meist der Herstellername. */
+function ersteWortgruppe(text: string): string | undefined {
+  const wort = text.trim().split(/\s+/)[0];
+  return wort && wort.length >= 2 && wort.length <= 30 ? wort.replace(/[:,]$/, '') : undefined;
 }

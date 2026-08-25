@@ -18,6 +18,11 @@ export interface ArtikelSchluessel {
   ean?: string | null;
   /** Interner Matchcode, falls vorhanden. */
   matchcode?: string | null;
+  /**
+   * Bezeichnung aus dem Angebot. Dient nur als Rueckfall fuer den
+   * Kapitelvorschlag, wenn OXOMI keine Bezeichnung liefert - nie als Faktenquelle.
+   */
+  bezeichnungHinweis?: string | null;
 }
 
 export type Trefferstatus =
@@ -35,14 +40,25 @@ export type Trefferstatus =
 export type Inhaltsquelle = 'oxomi' | 'manuell';
 
 export interface ArtikelBild {
+  /** Hoechste im Browser und im Druck nutzbare Aufloesung. */
   url: string;
   /** Kleinere Vorschau, falls OXOMI eine liefert. */
   vorschauUrl?: string;
+  /**
+   * Originaldatei beim Hersteller. Kann ein Druckformat wie EPS sein, das kein
+   * Browser anzeigt - fuer den Druck aber die beste Quelle.
+   */
+  originalUrl?: string;
   breite?: number;
   hoehe?: number;
-  /** Rohbezeichnung der Bildart aus OXOMI, z. B. "Produktbild", "Milieubild". */
+  /** Bezeichnung der Bildart aus OXOMI, z. B. "Produktbild", "Vermaßte Strichzeichnung". */
   art?: string;
   titel?: string;
+  /**
+   * Massskizze statt Produktbild. In der Mappe stehen diese gesammelt auf einer
+   * eigenen Seite hinten (UEBERGABE.md Abschnitt 7), nicht beim Artikel.
+   */
+  istMasszeichnung: boolean;
   quelle: Inhaltsquelle;
 }
 
@@ -54,6 +70,15 @@ export interface ArtikelFakt {
   /** Einheit, z. B. "mm". */
   einheit?: string;
   quelle: Inhaltsquelle;
+}
+
+/** Wie OXOMI den Artikel intern fuehrt. Ergebnis der EAN-Aufloesung. */
+export interface OxomiKennung {
+  /** OXOMI-Lieferantennummer, z. B. "16060". Nicht der Herstellername. */
+  supplierNumber: string;
+  /** Artikelnummer des Lieferanten in OXOMI. */
+  supplierItemNumber: string;
+  productId?: string;
 }
 
 export interface EclassInfo {
@@ -102,9 +127,13 @@ export interface ArtikelDaten {
 
   bilder: ArtikelBild[];
   fakten: ArtikelFakt[];
+  /** Freitext-Eigenschaften ohne Merkmalsnamen, z. B. "Unterbaufaehig". */
+  eigenschaften: string[];
   eclass?: EclassInfo | null;
   dokumente: ArtikelDokument[];
   kapitelvorschlag: Kapitelvorschlag;
+  /** Die Kennung, unter der OXOMI den Artikel fuehrt. Fuer Folgeabfragen. */
+  oxomiKennung?: OxomiKennung;
 
   /** Woher die ausgelieferten Daten kommen. */
   quelle: 'cache' | 'oxomi' | 'manuell';

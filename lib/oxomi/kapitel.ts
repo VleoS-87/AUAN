@@ -11,7 +11,7 @@
  * gegen "Fakten nur aus Daten". Bis dahin traegt die Bezeichnung den Vorschlag;
  * ein eCl@ss-Klartext aus OXOMI wird mitgelesen, wenn er vorliegt.
  */
-import type { Kapitel, Kapitelvorschlag } from './types';
+import type { Kapitel, Kapitelvorschlag } from './types.ts';
 
 /**
  * eCl@ss-Schluessel -> Kapitel. Wird aus den im Testlauf gemessenen Codes

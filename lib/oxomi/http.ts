@@ -5,7 +5,7 @@
  * Auftrag, bricht ihn nie ab. Deshalb wird gedrosselt, wiederholt und mit
  * Zeitlimit gearbeitet; Fehler werden als Ergebnis zurueckgegeben statt geworfen.
  */
-import type { OxomiKonfiguration } from './config';
+import type { OxomiKonfiguration } from './config.ts';
 
 export interface AufrufErgebnis {
   ok: boolean;

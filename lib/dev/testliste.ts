@@ -52,6 +52,7 @@ export function ladeTestliste(): { artikel: TestArtikel[]; fehler?: string } {
     artikel.push({
       pietschNr: feld(iNr) || null,
       bezeichnung: feld(iBez),
+      bezeichnungHinweis: feld(iBez) || null,
       werksnummer: feld(iWerk) || null,
       ean: feld(iEan) || null,
       matchcode: feld(iMatch) || null,

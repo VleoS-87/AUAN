@@ -6,7 +6,8 @@
  * Serverless-Umgebung ohne Dateizugriff. Jede Migration ist idempotent,
  * damit ein zweiter Lauf nichts kaputt macht.
  */
-import { migration0001 } from './0001_artikel_cache';
+import { migration0001 } from './0001_artikel_cache.ts';
+import { migration0002 } from './0002_oxomi_lieferant.ts';
 
 export interface Migration {
   id: string;
@@ -14,4 +15,4 @@ export interface Migration {
   anweisungen: string[];
 }
 
-export const MIGRATIONEN: ReadonlyArray<Migration> = [migration0001];
+export const MIGRATIONEN: ReadonlyArray<Migration> = [migration0001, migration0002];

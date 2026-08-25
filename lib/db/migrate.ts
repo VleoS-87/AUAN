@@ -2,8 +2,8 @@
  * Migrationslauf. Wird ueber die geschuetzte Route /api/dev/migrate angestossen,
  * weil in der Cloud-Arbeitsweise kein lokaler Datenbankzugang existiert.
  */
-import { sql } from './client';
-import { MIGRATIONEN } from './migrations';
+import { sql } from './client.ts';
+import { MIGRATIONEN } from './migrations/index.ts';
 
 export interface MigrationsErgebnis {
   angewendet: string[];

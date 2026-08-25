@@ -4,16 +4,16 @@
  * Nur diese Datei kennt die Tabelle artikel_cache. Der Rest des OXOMI-Moduls
  * spricht ausschliesslich gegen das Interface aus cache.ts.
  */
-import { sql } from '@/lib/db/client';
-import { entfernePreisfelder } from './preissperre';
+import { sql } from '../db/client.ts';
+import { entfernePreisfelder } from './preissperre.ts';
 import {
   bildeCacheSchluessel,
   normalisiereHersteller,
   normalisiereNummer,
   type ArtikelCacheSpeicher,
   type CacheEintrag,
-} from './cache';
-import type { ArtikelDaten, ArtikelSchluessel } from './types';
+} from './cache.ts';
+import type { ArtikelDaten, ArtikelSchluessel } from './types.ts';
 
 interface Zeile {
   daten: ArtikelDaten;

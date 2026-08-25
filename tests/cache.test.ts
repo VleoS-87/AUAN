@@ -31,6 +31,7 @@ test('geschriebene Eintraege werden wiedergefunden', async () => {
     status: 'treffer',
     bilder: [],
     fakten: [],
+    eigenschaften: [],
     eclass: null,
     dokumente: [],
     kapitelvorschlag: { kapitel: 'Waschtischanlage', grundlage: 'bezeichnung' },

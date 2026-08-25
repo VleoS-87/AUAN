@@ -17,26 +17,45 @@ export type {
   EclassInfo,
   Kapitel,
   Kapitelvorschlag,
+  OxomiKennung,
   Trefferstatus,
-} from './types';
+} from './types.ts';
 
 export {
   reichereAn,
   reichereMehrereAn,
   type AnreicherungsErgebnis,
   type AnreicherungsUmgebung,
-} from './anreicherung';
+} from './anreicherung.ts';
 
 export {
   bildeCacheSchluessel,
   speicherCache,
   type ArtikelCacheSpeicher,
   type CacheEintrag,
-} from './cache';
+} from './cache.ts';
 
-export { postgresCache } from './cache-postgres';
-export { schlageKapitelVor, ECLASS_KAPITEL } from './kapitel';
-export { istPreisFeld, entfernePreisfelder } from './preissperre';
-export { fehlendeZugangsdaten, istKonfiguriert, ladeKonfiguration } from './config';
-export { kalibriere, type KalibrierErgebnis, type KalibrierZeile } from './kalibrierung';
-export { SUCHWEGE, KALIBRIER_PFADE, PRODUKT_PFAD } from './suchwege';
+export { postgresCache } from './cache-postgres.ts';
+export { postgresLieferanten } from './lieferanten-postgres.ts';
+export {
+  speicherLieferanten,
+  normalisiereHerstellername,
+  herstellerSchluessel,
+  type LieferantenSpeicher,
+  type LieferantZuordnung,
+} from './lieferanten.ts';
+
+export { schlageKapitelVor, ECLASS_KAPITEL } from './kapitel.ts';
+export { istPreisFeld, entfernePreisfelder } from './preissperre.ts';
+export { fehlendeZugangsdaten, istKonfiguriert, ladeKonfiguration, loesePortalKennung } from './config.ts';
+export { werteProduktAus, type Auswertung } from './auswertung.ts';
+export { loeseGtinAuf, holeProduktdaten, ohneGeheimnis, type AufrufSpur, type ClientUmgebung } from './client.ts';
+export { pruefeVerbindung, type Verbindungsbericht } from './verbindung.ts';
+export { Drossel } from './http.ts';
+export {
+  ABFRAGEARTEN,
+  GTIN_AUFLOESEN,
+  PRODUKTDATEN_V1,
+  PRODUKTDATEN_V2,
+  type OxomiProdukt,
+} from './endpunkte.ts';

@@ -3,11 +3,10 @@
  *
  * Zugriff nur mit Schluesselparameter, der serverseitig gegen APP_SECRET
  * geprueft wird. Zeigt je Testartikel Trefferstatus, Bilder, Fakten und
- * eCl@ss sowie eine Auswertung von Trefferquote und Luecken.
+ * Kapitelvorschlag sowie eine Auswertung von Trefferquote und Luecken.
  */
 import { pruefeSchluessel } from '@/lib/dev/schutz';
 import { fuehrePruefungAus, type PruefErgebnisZeile } from '@/lib/dev/oxomi-pruefung';
-import { kalibriere } from '@/lib/oxomi';
 import type { Trefferstatus } from '@/lib/oxomi';
 
 export const dynamic = 'force-dynamic';
@@ -18,7 +17,6 @@ interface Suchparameter {
   key?: string;
   frisch?: string;
   diagnose?: string;
-  modus?: string;
 }
 
 export default async function OxomiTestSeite({
@@ -44,7 +42,7 @@ export default async function OxomiTestSeite({
 
   const cacheUmgehen = p.frisch === '1';
   const mitDiagnose = p.diagnose === '1';
-  const kalibrierModus = p.modus === 'kalibrieren';
+  const schluessel = p.key ?? '';
 
   return (
     <main className="huelle">
@@ -52,36 +50,29 @@ export default async function OxomiTestSeite({
         <div>
           <h1>OXOMI-Pruefstand</h1>
           <p className="leise">
-            Stufe T-A. Alle Artikel aus der Testliste laufen ueber den echten OXOMI-Zugang.
+            Stufe T-A. Alle Artikel der Testliste laufen ueber den echten OXOMI-Zugang.
           </p>
         </div>
       </div>
 
       <nav className="werkzeugleiste">
-        <Link aktiv={!cacheUmgehen && !mitDiagnose && !kalibrierModus} schluessel={p.key!} zusatz="">
+        <Verweis aktiv={!cacheUmgehen && !mitDiagnose} schluessel={schluessel} zusatz="">
           Normal (mit Cache)
-        </Link>
-        <Link aktiv={cacheUmgehen && !mitDiagnose} schluessel={p.key!} zusatz="&frisch=1">
+        </Verweis>
+        <Verweis aktiv={cacheUmgehen && !mitDiagnose} schluessel={schluessel} zusatz="&frisch=1">
           Frisch von OXOMI
-        </Link>
-        <Link aktiv={mitDiagnose} schluessel={p.key!} zusatz="&frisch=1&diagnose=1">
+        </Verweis>
+        <Verweis aktiv={mitDiagnose} schluessel={schluessel} zusatz="&frisch=1&diagnose=1">
           Mit Abrufprotokoll
-        </Link>
-        <Link aktiv={kalibrierModus} schluessel={p.key!} zusatz="&modus=kalibrieren">
-          Kalibrierlauf
-        </Link>
+        </Verweis>
       </nav>
 
-      {kalibrierModus ? (
-        <Kalibrierung />
-      ) : (
-        <Pruefung cacheUmgehen={cacheUmgehen} mitDiagnose={mitDiagnose} />
-      )}
+      <Pruefung cacheUmgehen={cacheUmgehen} mitDiagnose={mitDiagnose} />
     </main>
   );
 }
 
-function Link({
+function Verweis({
   aktiv,
   schluessel,
   zusatz,
@@ -93,7 +84,10 @@ function Link({
   children: React.ReactNode;
 }) {
   return (
-    <a className={aktiv ? 'aktiv' : ''} href={`/dev/oxomi-test?key=${encodeURIComponent(schluessel)}${zusatz}`}>
+    <a
+      className={aktiv ? 'aktiv' : ''}
+      href={`/dev/oxomi-test?key=${encodeURIComponent(schluessel)}${zusatz}`}
+    >
       {children}
     </a>
   );
@@ -101,7 +95,13 @@ function Link({
 
 // ---------------------------------------------------------------------------
 
-async function Pruefung({ cacheUmgehen, mitDiagnose }: { cacheUmgehen: boolean; mitDiagnose: boolean }) {
+async function Pruefung({
+  cacheUmgehen,
+  mitDiagnose,
+}: {
+  cacheUmgehen: boolean;
+  mitDiagnose: boolean;
+}) {
   const stand = await fuehrePruefungAus({ cacheUmgehen, mitDiagnose });
   const a = stand.auswertung;
 
@@ -109,40 +109,55 @@ async function Pruefung({ cacheUmgehen, mitDiagnose }: { cacheUmgehen: boolean; 
     <>
       <div className="karte flaeche">
         <h3>Umgebung</h3>
-        <table>
-          <tbody>
-            <tr>
-              <td style={{ width: 260 }}>OXOMI-Zugangsdaten</td>
-              <td>
-                {stand.umgebung.oxomiKonfiguriert ? (
-                  <span className="marke gut">vollstaendig</span>
-                ) : (
-                  <>
-                    <span className="marke schlecht">unvollstaendig</span>{' '}
-                    <span className="mono">{stand.umgebung.fehlendeVariablen.join(', ')}</span>
-                  </>
-                )}
-              </td>
-            </tr>
-            <tr>
-              <td>Datenbank (Artikel-Cache)</td>
-              <td>
-                {stand.umgebung.cacheAktiv ? (
-                  <span className="marke gut">verbunden</span>
-                ) : (
-                  <span className="marke teil">nur Arbeitsspeicher</span>
-                )}
-                {stand.umgebung.cacheEintraege !== null && (
-                  <> {stand.umgebung.cacheEintraege} Eintraege in artikel_cache</>
-                )}
-              </td>
-            </tr>
-            <tr>
-              <td>Laufzeit dieses Durchgangs</td>
-              <td>{(stand.dauerMs / 1000).toFixed(1)} Sekunden</td>
-            </tr>
-          </tbody>
-        </table>
+        <div className="tabellenrahmen">
+          <table>
+            <tbody>
+              <tr>
+                <td style={{ width: 260 }}>Verbindung zu OXOMI</td>
+                <td>
+                  {stand.verbindung.erreichbar && stand.verbindung.angemeldet ? (
+                    <span className="marke gut">steht</span>
+                  ) : stand.verbindung.erreichbar ? (
+                    <span className="marke teil">erreichbar, Anmeldung offen</span>
+                  ) : (
+                    <span className="marke schlecht">keine Verbindung</span>
+                  )}{' '}
+                  {stand.verbindung.befund}
+                </td>
+              </tr>
+              <tr>
+                <td>Datenbank (Artikel-Cache)</td>
+                <td>
+                  {stand.umgebung.cacheAktiv ? (
+                    <span className="marke gut">verbunden</span>
+                  ) : (
+                    <span className="marke teil">nur Arbeitsspeicher</span>
+                  )}
+                  {stand.umgebung.cacheEintraege !== null && (
+                    <> {stand.umgebung.cacheEintraege} Eintraege in artikel_cache</>
+                  )}
+                  {stand.umgebung.cacheFehler && (
+                    <div style={{ color: 'var(--farbe-fehler)' }}>{stand.umgebung.cacheFehler}</div>
+                  )}
+                </td>
+              </tr>
+              <tr>
+                <td>Gelernte Lieferantennummern</td>
+                <td>
+                  {stand.lieferanten.length === 0
+                    ? 'noch keine'
+                    : stand.lieferanten
+                        .map((l) => `${l.hersteller} = ${l.supplierNumber}`)
+                        .join(' · ')}
+                </td>
+              </tr>
+              <tr>
+                <td>Laufzeit dieses Durchgangs</td>
+                <td>{(stand.dauerMs / 1000).toFixed(1)} Sekunden</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         {stand.testlisteFehler && (
           <p style={{ color: 'var(--farbe-fehler)', marginBottom: 0 }}>{stand.testlisteFehler}</p>
         )}
@@ -152,7 +167,8 @@ async function Pruefung({ cacheUmgehen, mitDiagnose }: { cacheUmgehen: boolean; 
       <div className="kennzahlen">
         <Kennzahl zahl={`${a.trefferquoteProzent} %`} beschriftung="Trefferquote" />
         <Kennzahl zahl={`${a.treffer} / ${a.gesamt}`} beschriftung="Artikel gefunden" />
-        <Kennzahl zahl={`${a.mitBild} / ${a.gesamt}`} beschriftung="mit Bild" />
+        <Kennzahl zahl={`${a.mitBild} / ${a.gesamt}`} beschriftung="mit Produktbild" />
+        <Kennzahl zahl={`${a.mitMasszeichnung} / ${a.gesamt}`} beschriftung="mit Maßzeichnung" />
         <Kennzahl zahl={`${a.mitFakten} / ${a.gesamt}`} beschriftung="mit Merkmalen" />
         <Kennzahl zahl={`${a.mitEclass} / ${a.gesamt}`} beschriftung="mit eCl@ss" />
         <Kennzahl zahl={`${a.mitKapitel} / ${a.gesamt}`} beschriftung="mit Kapitelvorschlag" />
@@ -167,6 +183,8 @@ async function Pruefung({ cacheUmgehen, mitDiagnose }: { cacheUmgehen: boolean; 
                 <th>Art</th>
                 <th>Artikel</th>
                 <th>gefunden</th>
+                <th>Bilder gesamt</th>
+                <th>Merkmale gesamt</th>
               </tr>
             </thead>
             <tbody>
@@ -175,6 +193,8 @@ async function Pruefung({ cacheUmgehen, mitDiagnose }: { cacheUmgehen: boolean; 
                   <td>{t.typ}</td>
                   <td>{t.gesamt}</td>
                   <td>{t.treffer}</td>
+                  <td>{t.bilder}</td>
+                  <td>{t.fakten}</td>
                 </tr>
               ))}
             </tbody>
@@ -224,6 +244,8 @@ function ArtikelKarte({ zeile, mitDiagnose }: { zeile: PruefErgebnisZeile; mitDi
   const { artikel, ergebnis } = zeile;
   const d = ergebnis.daten;
   const status = STATUS_TEXT[d.status];
+  const produktbilder = d.bilder.filter((b) => !b.istMasszeichnung);
+  const masszeichnungen = d.bilder.filter((b) => b.istMasszeichnung);
 
   return (
     <div className="karte">
@@ -236,9 +258,9 @@ function ArtikelKarte({ zeile, mitDiagnose }: { zeile: PruefErgebnisZeile; mitDi
         <table>
           <tbody>
             <tr>
-              <td style={{ width: 200 }}>Pietsch-Nr.</td>
+              <td style={{ width: 190 }}>Pietsch-Nr.</td>
               <td className="mono">{artikel.pietschNr ?? '-'}</td>
-              <td style={{ width: 160 }}>Hersteller</td>
+              <td style={{ width: 160 }}>Hersteller (Angebot)</td>
               <td>{artikel.hersteller ?? '-'}</td>
             </tr>
             <tr>
@@ -248,14 +270,26 @@ function ArtikelKarte({ zeile, mitDiagnose }: { zeile: PruefErgebnisZeile; mitDi
               <td className="mono">{artikel.ean ?? '-'}</td>
             </tr>
             <tr>
+              <td>In OXOMI gefuehrt als</td>
+              <td className="mono">
+                {d.oxomiKennung
+                  ? `Lieferant ${d.oxomiKennung.supplierNumber} / Artikel ${d.oxomiKennung.supplierItemNumber}`
+                  : '-'}
+              </td>
               <td>Art</td>
               <td>{artikel.typ || '-'}</td>
+            </tr>
+            <tr>
+              <td>Suchweg</td>
+              <td>{d.suchweg ?? '-'}</td>
               <td>Quelle der Daten</td>
               <td>{d.quelle === 'cache' ? 'Artikel-Cache' : 'OXOMI'}</td>
             </tr>
             <tr>
-              <td>Erfolgreicher Suchweg</td>
-              <td>{d.suchweg ?? '-'}</td>
+              <td>Bezeichnung laut OXOMI</td>
+              <td colSpan={3}>{d.bezeichnung ?? '-'}</td>
+            </tr>
+            <tr>
               <td>eCl@ss</td>
               <td>
                 {d.eclass ? (
@@ -264,76 +298,112 @@ function ArtikelKarte({ zeile, mitDiagnose }: { zeile: PruefErgebnisZeile; mitDi
                     {d.eclass.bezeichnung ? ` – ${d.eclass.bezeichnung}` : ''}
                   </>
                 ) : (
-                  '-'
+                  'liefert dieses Portal nicht'
                 )}
               </td>
-            </tr>
-            <tr>
               <td>Kapitelvorschlag</td>
               <td>
                 {d.kapitelvorschlag.kapitel ?? '-'}
                 {d.kapitelvorschlag.beleg ? (
-                  <span className="mono"> (aus {d.kapitelvorschlag.grundlage}: {d.kapitelvorschlag.beleg})</span>
+                  <span className="mono">
+                    {' '}
+                    (aus {d.kapitelvorschlag.grundlage}: {d.kapitelvorschlag.beleg})
+                  </span>
                 ) : null}
               </td>
+            </tr>
+            <tr>
               <td>Gefunden</td>
-              <td>
-                {d.bilder.length} Bilder, {d.fakten.length} Merkmale, {d.dokumente.length} Dokumente
+              <td colSpan={3}>
+                {produktbilder.length} Produktbilder, {masszeichnungen.length} Maßzeichnungen,{' '}
+                {d.fakten.length} Merkmale, {d.dokumente.length} Dokumente
               </td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      {d.bilder.length > 0 && (
-        <div className="bilderreihe">
-          {d.bilder.slice(0, 8).map((b) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img key={b.url} src={b.url} alt={b.titel ?? 'Produktbild aus OXOMI'} loading="lazy" />
-          ))}
-        </div>
+      {produktbilder.length > 0 && (
+        <>
+          <h3 style={{ marginTop: 16 }}>Produktbilder</h3>
+          <div className="bilderreihe">
+            {produktbilder.slice(0, 8).map((b) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img key={b.url} src={b.url} alt={b.titel ?? 'Produktbild aus OXOMI'} loading="lazy" />
+            ))}
+          </div>
+        </>
+      )}
+
+      {masszeichnungen.length > 0 && (
+        <>
+          <h3 style={{ marginTop: 16 }}>Maßzeichnungen</h3>
+          <div className="bilderreihe">
+            {masszeichnungen.slice(0, 6).map((b) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img key={b.url} src={b.url} alt={b.titel ?? 'Maßzeichnung aus OXOMI'} loading="lazy" />
+            ))}
+          </div>
+        </>
       )}
 
       {d.fakten.length > 0 && (
-        <div className="tabellenrahmen" style={{ marginTop: 12 }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Merkmal</th>
-                <th>Wert</th>
-              </tr>
-            </thead>
-            <tbody>
-              {d.fakten.slice(0, 20).map((f, i) => (
-                <tr key={i}>
-                  <td>{f.name}</td>
-                  <td>
-                    {f.wert}
-                    {f.einheit ? ` ${f.einheit}` : ''}
-                  </td>
+        <>
+          <h3 style={{ marginTop: 16 }}>Fakten (aus OXOMI-Daten, unveraendert)</h3>
+          <div className="tabellenrahmen">
+            <table>
+              <thead>
+                <tr>
+                  <th>Merkmal</th>
+                  <th>Wert</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {d.fakten.map((f, i) => (
+                  <tr key={i}>
+                    <td>{f.name}</td>
+                    <td>
+                      {f.wert}
+                      {f.einheit ? ` ${f.einheit}` : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {d.eigenschaften.length > 0 && (
+        <>
+          <h3 style={{ marginTop: 16 }}>Eigenschaften</h3>
+          <ul className="hinweise">
+            {d.eigenschaften.map((e, i) => (
+              <li key={i}>{e}</li>
+            ))}
+          </ul>
+        </>
       )}
 
       {d.hinweise.length > 0 && (
-        <ul className="hinweise">
-          {d.hinweise.map((h, i) => (
-            <li key={i}>{h}</li>
-          ))}
-        </ul>
+        <>
+          <h3 style={{ marginTop: 16 }}>Hinweise</h3>
+          <ul className="hinweise">
+            {d.hinweise.map((h, i) => (
+              <li key={i}>{h}</li>
+            ))}
+          </ul>
+        </>
       )}
 
       {mitDiagnose && ergebnis.diagnose.length > 0 && (
         <details style={{ marginTop: 12 }}>
-          <summary>Abrufprotokoll ({ergebnis.diagnose.length} Versuche)</summary>
+          <summary>Abrufprotokoll ({ergebnis.diagnose.length} Aufrufe)</summary>
           <div className="tabellenrahmen" style={{ marginTop: 10 }}>
             <table>
               <thead>
                 <tr>
-                  <th>Suchweg</th>
+                  <th>Aufruf</th>
                   <th>HTTP</th>
                   <th>Dauer</th>
                   <th>Ergebnis</th>
@@ -344,7 +414,10 @@ function ArtikelKarte({ zeile, mitDiagnose }: { zeile: PruefErgebnisZeile; mitDi
                   <tr key={i}>
                     <td>
                       {dg.beschreibung}
-                      <div className="mono" style={{ color: 'var(--farbe-text-leise)', wordBreak: 'break-all' }}>
+                      <div
+                        className="mono"
+                        style={{ color: 'var(--farbe-text-leise)', wordBreak: 'break-all' }}
+                      >
                         {dg.urlOhneGeheimnis}
                       </div>
                     </td>
@@ -362,55 +435,5 @@ function ArtikelKarte({ zeile, mitDiagnose }: { zeile: PruefErgebnisZeile; mitDi
         </details>
       )}
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-
-async function Kalibrierung() {
-  let ergebnis;
-  try {
-    ergebnis = await kalibriere({
-      hersteller: 'hansgrohe',
-      werksnummer: '60133450',
-      pietschNr: '054107001',
-      ean: '4059625478899',
-    });
-  } catch (fehler) {
-    return (
-      <div className="karte">
-        <h3>Kalibrierlauf nicht moeglich</h3>
-        <p style={{ margin: 0 }}>{fehler instanceof Error ? fehler.message : String(fehler)}</p>
-      </div>
-    );
-  }
-
-  return (
-    <>
-      <div className="karte flaeche">
-        <h3>Kalibrierlauf</h3>
-        <p style={{ margin: 0 }}>
-          Probiert die dokumentierten OXOMI-Dienstpfade mit einem echten Testartikel und zeigt,
-          welcher antwortet. Ergebnis: {ergebnis.expiresVariante}. Zugangsdaten erscheinen nirgends.
-        </p>
-      </div>
-      {ergebnis.zeilen.map((z) => (
-        <div className="karte" key={z.pfad}>
-          <div className="kopfzeile">
-            <h3>
-              <span className="mono">{z.pfad}</span>
-            </h3>
-            <span className={`marke ${z.vielversprechend ? 'gut' : 'schlecht'}`}>
-              {z.httpStatus ?? 'kein Kontakt'}
-            </span>
-          </div>
-          <p className="leise" style={{ marginBottom: 8 }}>
-            {z.zweck} · {z.dauerMs} ms
-          </p>
-          {z.fehler && <p style={{ color: 'var(--farbe-fehler)', margin: '0 0 8px' }}>{z.fehler}</p>}
-          {z.antwortAuszug && <pre className="rohdaten">{z.antwortAuszug}</pre>}
-        </div>
-      ))}
-    </>
   );
 }

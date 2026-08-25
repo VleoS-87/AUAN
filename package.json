@@ -8,12 +8,13 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/oxomi-kalibrierung.ts; next build",
+    "build": "node scripts/oxomi-kalibrierung.ts; node scripts/oxomi-nachweis.ts; next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "node --test --experimental-strip-types \"tests/*.test.ts\"",
-    "kalibrieren": "node --experimental-strip-types scripts/oxomi-kalibrierung.ts"
+    "kalibrieren": "node --experimental-strip-types scripts/oxomi-kalibrierung.ts",
+    "nachweis": "node --experimental-strip-types scripts/oxomi-nachweis.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

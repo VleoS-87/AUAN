@@ -7,12 +7,17 @@
  */
 import { datenbankVerfuegbar } from '@/lib/db/client';
 import {
-  fehlendeZugangsdaten,
   postgresCache,
+  postgresLieferanten,
+  pruefeVerbindung,
   reichereMehrereAn,
   speicherCache,
+  speicherLieferanten,
   type AnreicherungsErgebnis,
   type ArtikelCacheSpeicher,
+  type LieferantZuordnung,
+  type LieferantenSpeicher,
+  type Verbindungsbericht,
 } from '@/lib/oxomi';
 import { ladeTestliste, type TestArtikel } from './testliste';
 
@@ -30,25 +35,28 @@ export interface Auswertung {
   stoerungen: number;
   nichtKonfiguriert: number;
   mitBild: number;
+  mitMasszeichnung: number;
   mitFakten: number;
   mitEclass: number;
   mitKapitel: number;
   trefferquoteProzent: number;
   bildquoteProzent: number;
   eclassquoteProzent: number;
-  nachTyp: Array<{ typ: string; gesamt: number; treffer: number }>;
+  nachTyp: Array<{ typ: string; gesamt: number; treffer: number; bilder: number; fakten: number }>;
   luecken: string[];
 }
 
 export interface Pruefstand {
   zeilen: PruefErgebnisZeile[];
   auswertung: Auswertung;
+  verbindung: Verbindungsbericht;
+  lieferanten: LieferantZuordnung[];
   umgebung: {
     oxomiKonfiguriert: boolean;
-    fehlendeVariablen: string[];
     datenbank: boolean;
     cacheEintraege: number | null;
     cacheAktiv: boolean;
+    cacheFehler?: string;
   };
   dauerMs: number;
   testlisteFehler?: string;
@@ -63,44 +71,62 @@ export async function fuehrePruefungAus(optionen: PruefOptionen = {}): Promise<P
   const start = Date.now();
   const { artikel, fehler } = ladeTestliste();
 
-  const fehlt = fehlendeZugangsdaten();
   const dbDa = datenbankVerfuegbar();
-
-  let cache: ArtikelCacheSpeicher | null = null;
+  let cache: ArtikelCacheSpeicher;
+  let lieferanten: LieferantenSpeicher;
   let cacheAktiv = false;
+  let cacheFehler: string | undefined;
+
   if (dbDa) {
     try {
       cache = postgresCache();
+      lieferanten = postgresLieferanten();
       cacheAktiv = true;
-    } catch {
+    } catch (f) {
       cache = speicherCache();
+      lieferanten = speicherLieferanten();
+      cacheFehler = f instanceof Error ? f.message : String(f);
     }
   } else {
     cache = speicherCache();
+    lieferanten = speicherLieferanten();
+    cacheFehler = 'DATABASE_URL ist nicht gesetzt - der Cache haelt nur fuer diesen Aufruf.';
   }
+
+  const verbindung = await pruefeVerbindung().catch((f) => ({
+    erreichbar: false,
+    angemeldet: false,
+    befund: f instanceof Error ? f.message : String(f),
+  }));
 
   const ergebnisse = await reichereMehrereAn(
     artikel,
     { cacheUmgehen: optionen.cacheUmgehen, mitDiagnose: optionen.mitDiagnose },
-    { cache },
+    { cache, lieferanten },
   );
 
-  const zeilen: PruefErgebnisZeile[] = artikel.map((a, i) => ({ artikel: a, ergebnis: ergebnisse[i] }));
+  const zeilen: PruefErgebnisZeile[] = artikel.map((a, i) => ({
+    artikel: a,
+    ergebnis: ergebnisse[i],
+  }));
 
   let cacheEintraege: number | null = null;
-  if (cacheAktiv && cache?.anzahl) {
+  if (cacheAktiv && cache.anzahl) {
     cacheEintraege = await cache.anzahl().catch(() => null);
   }
+  const gelernt = lieferanten.alle ? await lieferanten.alle().catch(() => []) : [];
 
   return {
     zeilen,
     auswertung: werteAus(zeilen),
+    verbindung,
+    lieferanten: gelernt,
     umgebung: {
-      oxomiKonfiguriert: fehlt.length === 0,
-      fehlendeVariablen: fehlt,
+      oxomiKonfiguriert: verbindung.angemeldet,
       datenbank: dbDa,
       cacheEintraege,
       cacheAktiv,
+      cacheFehler,
     },
     dauerMs: Date.now() - start,
     testlisteFehler: fehler,
@@ -111,6 +137,9 @@ function werteAus(zeilen: PruefErgebnisZeile[]): Auswertung {
   const gesamt = zeilen.length;
   const daten = zeilen.map((z) => z.ergebnis.daten);
 
+  const produktbilder = (d: (typeof daten)[number]) => d.bilder.filter((b) => !b.istMasszeichnung);
+  const masszeichnungen = (d: (typeof daten)[number]) => d.bilder.filter((b) => b.istMasszeichnung);
+
   const vollstaendig = daten.filter((d) => d.status === 'treffer').length;
   const teilweise = daten.filter((d) => d.status === 'teiltreffer').length;
   const ohneTreffer = daten.filter((d) => d.status === 'kein_treffer').length;
@@ -118,19 +147,21 @@ function werteAus(zeilen: PruefErgebnisZeile[]): Auswertung {
   const nichtKonfiguriert = daten.filter((d) => d.status === 'nicht_konfiguriert').length;
   const treffer = vollstaendig + teilweise;
 
-  const mitBild = daten.filter((d) => d.bilder.length > 0).length;
+  const mitBild = daten.filter((d) => produktbilder(d).length > 0).length;
+  const mitMasszeichnung = daten.filter((d) => masszeichnungen(d).length > 0).length;
   const mitFakten = daten.filter((d) => d.fakten.length > 0).length;
   const mitEclass = daten.filter((d) => Boolean(d.eclass)).length;
   const mitKapitel = daten.filter((d) => d.kapitelvorschlag.kapitel !== null).length;
 
-  const typen = new Map<string, { gesamt: number; treffer: number }>();
+  const typen = new Map<string, { gesamt: number; treffer: number; bilder: number; fakten: number }>();
   for (const zeile of zeilen) {
     const typ = zeile.artikel.typ || 'unbekannt';
-    const eintrag = typen.get(typ) ?? { gesamt: 0, treffer: 0 };
+    const eintrag = typen.get(typ) ?? { gesamt: 0, treffer: 0, bilder: 0, fakten: 0 };
+    const d = zeile.ergebnis.daten;
     eintrag.gesamt += 1;
-    if (zeile.ergebnis.daten.status === 'treffer' || zeile.ergebnis.daten.status === 'teiltreffer') {
-      eintrag.treffer += 1;
-    }
+    if (d.status === 'treffer' || d.status === 'teiltreffer') eintrag.treffer += 1;
+    eintrag.bilder += d.bilder.length;
+    eintrag.fakten += d.fakten.length;
     typen.set(typ, eintrag);
   }
 
@@ -140,11 +171,14 @@ function werteAus(zeilen: PruefErgebnisZeile[]): Auswertung {
     const name = `${zeile.artikel.pietschNr ?? '-'} ${zeile.artikel.bezeichnung}`.slice(0, 70);
     if (d.status === 'kein_treffer') luecken.push(`${name}: kein Treffer in OXOMI`);
     else if (d.status === 'fehler') luecken.push(`${name}: Stoerung beim Abruf`);
-    else if (d.status === 'nicht_konfiguriert') luecken.push(`${name}: nicht abgefragt (Zugangsdaten fehlen)`);
+    else if (d.status === 'nicht_konfiguriert')
+      luecken.push(`${name}: nicht abgefragt (Zugangsdaten fehlen)`);
     else {
-      if (d.bilder.length === 0) luecken.push(`${name}: Treffer, aber ohne Bild`);
+      if (produktbilder(d).length === 0) luecken.push(`${name}: Treffer, aber ohne Produktbild`);
       if (d.fakten.length === 0) luecken.push(`${name}: Treffer, aber ohne Merkmale`);
-      if (!d.eclass) luecken.push(`${name}: Treffer, aber ohne eCl@ss`);
+      if (masszeichnungen(d).length === 0) luecken.push(`${name}: Treffer, aber ohne Maßzeichnung`);
+      if (d.kapitelvorschlag.kapitel === null)
+        luecken.push(`${name}: Treffer, aber ohne Kapitelvorschlag`);
     }
   }
 
@@ -159,6 +193,7 @@ function werteAus(zeilen: PruefErgebnisZeile[]): Auswertung {
     stoerungen,
     nichtKonfiguriert,
     mitBild,
+    mitMasszeichnung,
     mitFakten,
     mitEclass,
     mitKapitel,

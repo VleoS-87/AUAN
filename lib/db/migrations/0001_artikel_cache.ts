@@ -1,4 +1,4 @@
-import type { Migration } from './index';
+import type { Migration } from './index.ts';
 
 /**
  * Artikel-Cache laut UEBERGABE.md Abschnitt 5 und 6.
