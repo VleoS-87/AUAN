@@ -185,7 +185,12 @@ function werteTexteAus(texte: OxomiText[]): {
   let inMerkmalen = false;
   let inEigenschaften = false;
 
-  for (const zeile of zeilen) {
+  // Manche Hersteller liefern alle Merkmale in einer langen Komma-Kette
+  // ("Kollektion: O.novo, Form: Oval, Material: Keramik"). Die wird vorher
+  // wieder in einzelne Zeilen zerlegt.
+  const einzelzeilen = zeilen.flatMap(zerlegeMehrfachzeile);
+
+  for (const zeile of einzelzeilen) {
     const paar = zeile.match(/^(.{2,60}?):\s*(.+)$/);
 
     if (!paar) {
@@ -208,7 +213,8 @@ function werteTexteAus(texte: OxomiText[]): {
 
     const [, rohName, rohWert] = paar;
     const name = raeumeMerkmalsnamenAuf(rohName, rohWert);
-    const wert = rohWert.trim();
+    const wert = raeumeWertAuf(rohWert);
+    if (wert === '') continue;
 
     if (istPreisFeld(name)) continue; // Grundregel 1
     if (wert.length > 200 || fakten.length >= MAX_FAKTEN) continue;
@@ -301,3 +307,29 @@ function ersteBrauchbareZeilen(quellen: Array<string | undefined>): string[] {
   }
   return rueckfall;
 }
+
+/**
+ * Zerlegt eine Zeile, die mehrere Merkmale in einer Komma-Kette traegt.
+ * Getrennt wird nur an einem Komma, dem unmittelbar ein neuer Merkmalsname mit
+ * Doppelpunkt folgt - so bleibt "Farbe: weiß, matt" eine einzige Angabe.
+ */
+export function zerlegeMehrfachzeile(zeile: string): string[] {
+  if ((zeile.match(/:/g) ?? []).length < 2) return [zeile];
+  return zeile
+    .split(/,\s*(?=[^,:]{2,40}:\s)/)
+    .map((t) => t.trim())
+    .filter((t) => t !== '');
+}
+
+/** Schneidet Satzzeichen am Ende ab und entfernt eine angehaengte Ueberschrift. */
+function raeumeWertAuf(rohWert: string): string {
+  let wert = rohWert.trim().replace(/[;,.]+$/, '').trim();
+  // "5660R0, Eigenschaften" -> "5660R0": ein angehaengtes Einzelwort in
+  // Grossschreibung ohne eigenen Wert ist eine Abschnittsueberschrift.
+  const angehaengt = wert.match(/^(.*?),\s*([A-ZÄÖÜ][a-zäöüß]{4,})$/);
+  if (angehaengt && ABSCHNITTSWORT.test(angehaengt[2])) wert = angehaengt[1].trim();
+  return wert;
+}
+
+const ABSCHNITTSWORT =
+  /^(Eigenschaften|Merkmale|Abmessungen|Masse|Maße|Technische|Allgemein|Lieferumfang|Zubehoer|Zubehör|Ausfuehrung|Ausführung|Verwendungszwecke)$/;

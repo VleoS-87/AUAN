@@ -8,7 +8,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { werteProduktAus } from '../lib/oxomi/auswertung.ts';
+import { werteProduktAus, zerlegeMehrfachzeile } from '../lib/oxomi/auswertung.ts';
 import { entfernePreisfelder } from '../lib/oxomi/preissperre.ts';
 import type { OxomiProdukt } from '../lib/oxomi/endpunkte.ts';
 
@@ -165,4 +165,46 @@ test('ein nicht aufgeloester Artikel liefert nichts', () => {
   assert.equal(a.gefunden, false);
   assert.equal(a.bilder.length, 0);
   assert.equal(a.fakten.length, 0);
+});
+
+test('zerlegt eine Komma-Kette in einzelne Merkmale', () => {
+  const teile = zerlegeMehrfachzeile(
+    'Artikelnummer: 5660R001, EAN Nummer: 4051202285432, Kollektion: O.novo, Form: Oval',
+  );
+  assert.deepEqual(teile, [
+    'Artikelnummer: 5660R001',
+    'EAN Nummer: 4051202285432',
+    'Kollektion: O.novo',
+    'Form: Oval',
+  ]);
+});
+
+test('trennt nicht innerhalb eines Werts', () => {
+  assert.deepEqual(zerlegeMehrfachzeile('Farbe: weiß, matt'), ['Farbe: weiß, matt']);
+  assert.deepEqual(zerlegeMehrfachzeile('Nur ein Text ohne Merkmal'), ['Nur ein Text ohne Merkmal']);
+});
+
+test('liest Merkmale auch aus einer HTML-Beschreibung ohne normalizedText', () => {
+  const a = werteProduktAus({
+    itemNumber: '5660R001',
+    resolved: true,
+    queries: {
+      texts: {
+        type: 'json',
+        error: false,
+        texts: [
+          {
+            type: 'DESCRIPTION',
+            typeName: 'Artikelbeschreibung (HTML)',
+            optimizedText:
+              '<ul><li>Kollektion: O.novo, Form: Oval, Eigenschaften</li><li>Material: Sanitärkeramik</li></ul>',
+          },
+        ],
+      },
+    },
+  });
+  const alsKarte = Object.fromEntries(a.fakten.map((f) => [f.name, f.wert]));
+  assert.equal(alsKarte['Kollektion'], 'O.novo');
+  assert.equal(alsKarte['Material'], 'Sanitärkeramik');
+  assert.equal(alsKarte['Form'], 'Oval', 'die angehaengte Ueberschrift muss abgeschnitten sein');
 });
