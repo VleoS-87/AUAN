@@ -47,6 +47,12 @@ const MERKMALS_KANDIDATEN = [
   'etim-data',
   'product-etim',
   'classification-etim',
+  // Schreibweisen aus der OXOMI-Hilfeseite "Merkmale fuer Artikel"
+  'item-features',
+  'itemfeatures',
+  'item-attributes',
+  'item-data',
+  'metaclass',
   // allgemeine Merkmalsbegriffe
   'features',
   'product-features',
@@ -104,6 +110,8 @@ function auszug(koerper: unknown, laenge: number): string {
 // ---------------------------------------------------------------------------
 
 const DOKU_SEITEN = [
+  // Hilfeseite "Merkmale fuer Artikel" - beschreibt die Merkmalsfunktion direkt
+  'https://oxomi.com/help/de/integration/beispiele/function-item-features',
   'https://oxomi.com/system/api',
   'https://oxomi.com/system/api/product',
   'https://oxomi.com/system/api/product-sync',
