@@ -1,0 +1,12 @@
+Solange diese Datei existiert, laeuft im Vercel-Build der OXOMI-Kalibrierlauf
+(scripts/oxomi-kalibrierung.ts) und schreibt sein Ergebnis ins Build-Protokoll.
+
+Ohne diese Datei macht der Build keine einzige Anfrage nach aussen.
+
+Aktuelle Frage des Laufs: Liefert das Portal eine ETIM-Klassifikation mit
+strukturierten Merkmalen? ETIM ist im SHK-Bereich die verbreitetere
+Klassifikation als eCl@ss und traegt Merkmale mit Werten - das waere fuer die
+Faktenzeile der Mappe die sauberere Quelle als das Auslesen aus
+Beschreibungstexten.
+
+Nach beantworteter Frage wird die Datei wieder entfernt.
