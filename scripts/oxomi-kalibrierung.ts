@@ -273,6 +273,50 @@ function ladeTestartikel(): AufgeloesterArtikel[] {
   });
 }
 
+/**
+ * Zeigt eine Produktantwort abschnittsweise: erst der Kopf, dann je Abfrageart
+ * ein eigener Auszug. So bleibt im Protokoll lesbar, was wirklich geliefert wird.
+ */
+function zeigeProduktantwort(koerper: unknown): void {
+  const sicher = koerper === undefined ? undefined : entfernePreisfelder(koerper);
+  if (!sicher || typeof sicher !== 'object') {
+    zeile('     (keine auswertbare Antwort)');
+    return;
+  }
+  const rumpf = sicher as {
+    products?: Array<{
+      productId?: string;
+      supplierNumber?: string;
+      itemNumber?: string;
+      resolved?: boolean;
+      queries?: Record<string, unknown> | Array<Record<string, unknown>>;
+    }>;
+  };
+  const produkt = rumpf.products?.[0];
+  if (!produkt) {
+    zeile(`     ${JSON.stringify(sicher).slice(0, 500)}`);
+    return;
+  }
+
+  zeile(
+    `     productId=${produkt.productId} Lieferant=${produkt.supplierNumber} Artikel=${produkt.itemNumber} gefunden=${produkt.resolved}`,
+  );
+
+  const abfragen = produkt.queries;
+  const eintraege: Array<[string, unknown]> = Array.isArray(abfragen)
+    ? abfragen.map((a) => [String((a as { name?: string }).name ?? '?'), a])
+    : Object.entries(abfragen ?? {});
+
+  for (const [name, inhalt] of eintraege) {
+    const text = JSON.stringify(inhalt);
+    zeile(`     [${name}] ${text.length} Zeichen`);
+    for (let i = 0; i < Math.min(text.length, 1600); i += 200) {
+      zeile(`       | ${text.slice(i, i + 200)}`);
+    }
+    if (text.length > 1600) zeile(`       | ... (${text.length - 1600} Zeichen mehr)`);
+  }
+}
+
 async function probiereArtikel(
   konfiguration: ReturnType<typeof ladeKonfiguration>,
   drossel: Drossel,
@@ -351,8 +395,10 @@ async function probiereArtikel(
       products: [{ itemNumber: ziel.supplierItemNumber, supplierNumber: ziel.supplierNumber }],
     },
   });
-  zeile(`     HTTP ${v2.httpStatus ?? '-'} (${v2.dauerMs} ms)`);
-  drucke(antwortAuszug(v2.koerper, v2.rohtext, 4000));
+  zeile(`     HTTP ${v2.httpStatus ?? '-'} (${v2.dauerMs} ms), Antwortlaenge ${
+    v2.rohtext?.length ?? 0
+  } Zeichen`);
+  zeigeProduktantwort(v2.koerper);
 
   // --- 3c: Produktauskunft V1, um die Vollausgabe zu sehen --------------
   zeile('  3c) Produktauskunft V1 mit demselben Artikel');
@@ -364,7 +410,7 @@ async function probiereArtikel(
   });
   const v1 = await rufeAuf(v1Url, ohneWiederholung, drossel);
   zeile(`     HTTP ${v1.httpStatus ?? '-'} (${v1.dauerMs} ms)`);
-  drucke(antwortAuszug(v1.koerper, v1.rohtext, 2500));
+  drucke(antwortAuszug(v1.koerper, v1.rohtext, 1200));
 
   // --- 3d: Gibt es einen Dienst fuer Merkmale und eCl@ss? ---------------
   zeile('  3d) Weitere Dienste laut Dokumentation (Datenblatt, Inhalte, Marken)');

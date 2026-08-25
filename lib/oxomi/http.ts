@@ -20,6 +20,7 @@ export interface AufrufErgebnis {
   versuche: number;
 }
 
+/** Nur fuer die Diagnoseanzeige. Die Auswertung sieht immer die volle Antwort. */
 const MAX_ROHTEXT = 20_000;
 
 /** Einfache Drossel: begrenzt Parallelitaet und haelt einen Mindestabstand ein. */
@@ -146,11 +147,14 @@ async function einVersuch(
       cache: 'no-store',
     });
 
-    const rohtext = (await antwort.text()).slice(0, MAX_ROHTEXT);
+    // Erst vollstaendig lesen und auswerten, dann fuer die Diagnose kuerzen.
+    // Umgekehrt wuerde eine grosse Produktantwort abgeschnitten und damit
+    // unlesbar - genau das ist im Kalibrierlauf einmal passiert.
+    const volltext = await antwort.text();
 
     let koerper: unknown;
     try {
-      koerper = JSON.parse(rohtext);
+      koerper = JSON.parse(volltext);
     } catch {
       koerper = undefined;
     }
@@ -159,7 +163,7 @@ async function einVersuch(
       ok: antwort.ok,
       httpStatus: antwort.status,
       koerper,
-      rohtext,
+      rohtext: volltext.slice(0, MAX_ROHTEXT),
       fehler: antwort.ok ? undefined : `OXOMI antwortete mit HTTP ${antwort.status}.`,
     };
   } catch (fehler) {
