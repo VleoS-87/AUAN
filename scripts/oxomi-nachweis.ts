@@ -145,6 +145,13 @@ async function hauptlauf(): Promise<void> {
       zeile(`     Fakten (Auszug): ${probe}`);
     }
     if (produktbilder[0]) zeile(`     Erstes Bild: ${produktbilder[0].url.slice(0, 110)}`);
+
+    // Wo keine Merkmale herauskommen, zeigen, was OXOMI stattdessen liefert.
+    if (d.fakten.length === 0 && d.oxomiKennung) {
+      zeile('     KEINE MERKMALE - vorhandene Texte:');
+      if (!d.langtext) zeile('       (auch kein Langtext)');
+      else zeile(`       Langtext (Anfang): ${d.langtext.replace(/\s+/g, ' ').slice(0, 400)}`);
+    }
   }
 
   zeile();

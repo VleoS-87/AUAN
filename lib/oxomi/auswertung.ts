@@ -172,11 +172,15 @@ function werteTexteAus(texte: OxomiText[]): {
   const eigenschaften: string[] = [];
 
   // Der normalisierte Text ist bereits zeilenweise gegliedert - genau die Form,
-  // aus der sich Merkmale verlaesslich lesen lassen.
-  const zeilen = (beschreibung?.normalizedText ?? '')
-    .split('\n')
-    .map((z) => z.trim())
-    .filter((z) => z !== '');
+  // aus der sich Merkmale verlaesslich lesen lassen. Nicht jeder Hersteller
+  // liefert ihn; dann wird die HTML-Fassung zu Zeilen gemacht, und zur Not
+  // dient der Langtext als dritte Quelle.
+  const zeilen = ersteBrauchbareZeilen([
+    beschreibung?.normalizedText,
+    htmlZuZeilen(beschreibung?.optimizedText),
+    lang?.normalizedText,
+    htmlZuZeilen(lang?.optimizedText),
+  ]);
 
   let inMerkmalen = false;
   let inEigenschaften = false;
@@ -260,4 +264,40 @@ function escapeRegex(text: string): string {
 function ersteWortgruppe(text: string): string | undefined {
   const wort = text.trim().split(/\s+/)[0];
   return wort && wort.length >= 2 && wort.length <= 30 ? wort.replace(/[:,]$/, '') : undefined;
+}
+
+/**
+ * Macht aus einer HTML-Beschreibung Zeilen. Listenpunkte, Absaetze und
+ * Zeilenumbrueche werden zu Zeilengrenzen, alles andere entfaellt.
+ */
+function htmlZuZeilen(html: string | undefined): string | undefined {
+  if (!html || !html.includes('<')) return html;
+  return html
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\/\s*(li|p|div|h[1-6]|ul|ol|tr)\s*>/gi, '\n')
+    .replace(/<\s*(li|p|div|h[1-6]|tr)[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/[ \t]+/g, ' ');
+}
+
+/** Nimmt die erste Textquelle, die ueberhaupt Zeilen mit Merkmalen enthaelt. */
+function ersteBrauchbareZeilen(quellen: Array<string | undefined>): string[] {
+  let rueckfall: string[] = [];
+  for (const quelle of quellen) {
+    if (!quelle) continue;
+    const zeilen = quelle
+      .split('\n')
+      .map((z) => z.trim())
+      .filter((z) => z !== '');
+    if (zeilen.length === 0) continue;
+    if (zeilen.some((z) => /^.{2,60}?:\s*\S/.test(z))) return zeilen;
+    if (rueckfall.length === 0) rueckfall = zeilen;
+  }
+  return rueckfall;
 }
