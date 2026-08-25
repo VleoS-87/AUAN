@@ -235,9 +235,16 @@ export function baueUrl(basisUrl: string, pfad: string, params: Record<string, s
   return url.toString();
 }
 
-/** Ersetzt das Zugangstoken in einer Adresse, damit es nirgends sichtbar wird. */
+/**
+ * Ersetzt in einer Adresse alles, was zu den Zugangsdaten gehoert: Token,
+ * Portal-Kennung und technischen Benutzer. Was uebrig bleibt, ist der
+ * Dienstpfad und die Artikelsuche - genau das, was zur Diagnose noetig ist.
+ */
 export function ohneGeheimnis(url: string): string {
-  return url.replace(/(accessToken=)[^&]*/gi, '$1***');
+  return url
+    .replace(/(accessToken=)[^&]*/gi, '$1***')
+    .replace(/(portal=)[^&]*/gi, '$1***')
+    .replace(/(user=)[^&]*/gi, '$1***');
 }
 
 interface Bewertung {

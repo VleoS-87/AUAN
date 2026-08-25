@@ -46,13 +46,30 @@ export function istKonfiguriert(env: NodeJS.ProcessEnv = process.env): boolean {
   return fehlendeZugangsdaten(env).length === 0;
 }
 
+/**
+ * Die Portal-Angabe kann als reine Kennung oder als vollstaendige Portaladresse
+ * hinterlegt sein (`https://oxomi.com/p/123456`). OXOMI erwartet im Aufruf die
+ * Kennung, deshalb wird sie hier herausgeloest. Gemessen im Kalibrierlauf vom
+ * 25.08.2026: In dieser Umgebung steht die vollstaendige Adresse.
+ */
+export function loesePortalKennung(roh: string): string {
+  const wert = roh.trim();
+  const treffer = wert.match(/\/p\/([^/?#]+)/);
+  if (treffer) return treffer[1];
+  if (/^https?:\/\//i.test(wert)) {
+    const letzter = wert.replace(/[/?#].*$/, '').split('/').filter(Boolean).pop();
+    return letzter ?? wert;
+  }
+  return wert;
+}
+
 export function ladeKonfiguration(env: NodeJS.ProcessEnv = process.env): OxomiKonfiguration {
   const fehlt = fehlendeZugangsdaten(env);
   if (fehlt.length > 0) throw new OxomiNichtKonfiguriertError(fehlt);
 
   return {
     basisUrl: (env.OXOMI_BASE_URL || STANDARD_BASIS_URL).replace(/\/+$/, ''),
-    portal: env.OXOMI_PORTAL!.trim(),
+    portal: loesePortalKennung(env.OXOMI_PORTAL!),
     user: env.OXOMI_USER!.trim(),
     secret: env.OXOMI_SECRET!.trim(),
     rollen: (env.OXOMI_ROLES || STANDARD_ROLLEN).trim(),
