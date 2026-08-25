@@ -182,7 +182,16 @@ export async function reichereAn(
   const produktbilder = aus.bilder.filter((b) => !b.istMasszeichnung);
   if (produktbilder.length === 0) hinweise.push('OXOMI liefert kein Produktbild zu diesem Artikel.');
   if (aus.fakten.length === 0) hinweise.push('OXOMI liefert keine Merkmale zu diesem Artikel.');
-  hinweise.push('Dieses Portal liefert keine eCl@ss-Klassifikation. Das Kapitel wird aus der Bezeichnung vorgeschlagen.');
+  if (!aus.klassifikation) {
+    hinweise.push(
+      'Keine Klassifikation zu diesem Artikel. Das Kapitel wird aus der Bezeichnung vorgeschlagen.',
+    );
+  }
+  if (aus.fakten.some((f) => f.herkunft === 'beschreibungstext')) {
+    hinweise.push(
+      'Die Merkmale stammen aus dem Beschreibungstext, nicht aus der Klassifikation - vor dem Druck pruefen.',
+    );
+  }
 
   const status: Trefferstatus =
     produktbilder.length > 0 && aus.fakten.length > 0 ? 'treffer' : 'teiltreffer';
@@ -197,9 +206,11 @@ export async function reichereAn(
     bilder: aus.bilder,
     fakten: aus.fakten,
     eigenschaften: aus.eigenschaften,
-    eclass: null,
+    klassifikation: aus.klassifikation,
     dokumente: aus.dokumente,
     kapitelvorschlag: schlageKapitelVor({
+      klassifikationCode: aus.klassifikation?.code,
+      klassifikationBezeichnung: aus.klassifikation?.bezeichnung,
       bezeichnung: aus.bezeichnung ?? schluessel.bezeichnungHinweis ?? null,
     }),
     quelle: 'oxomi',
@@ -251,7 +262,7 @@ function leer(
     bilder: [],
     fakten: [],
     eigenschaften: [],
-    eclass: null,
+    klassifikation: null,
     dokumente: [],
     kapitelvorschlag: schlageKapitelVor({ bezeichnung: schluessel.bezeichnungHinweis ?? null }),
     quelle: 'oxomi',

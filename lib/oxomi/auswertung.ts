@@ -5,12 +5,18 @@
  * (siehe endpunkte.ts). Sie liest nur, was in den Daten steht, und erfindet
  * nichts (Grundregel 3 aus UEBERGABE.md Abschnitt 2).
  *
- * Besonderheit dieses Portals: Es liefert keine maschinenlesbaren Merkmale und
- * keine eCl@ss-Klassifikation. Die Merkmale stecken im Beschreibungstext, den
- * OXOMI in `normalizedText` bereits sauber in Zeilen zerlegt mitliefert -
- * Abschnittsueberschriften und darunter Zeilen der Form "Merkmal: Wert".
- * Genau diese Zeilen werden ausgelesen. Das ist Uebernahme aus den Daten,
- * keine Interpretation.
+ * Die Merkmale kommen aus zwei Quellen, in dieser Reihenfolge:
+ *
+ *   1. Die Klassifikation (`features`). Sie liefert Klasse und Merkmale als
+ *      saubere Name/Wert-Paare mit Codes im ETIM-Schema (EC…/EF…). Das ist die
+ *      belastbare Quelle: jeder Wert traegt einen Schluessel und ist zwischen
+ *      Herstellern vergleichbar.
+ *   2. Der Beschreibungstext, falls die Klassifikation fuer einen Artikel fehlt.
+ *      OXOMI liefert ihn in `normalizedText` bereits zeilenweise gegliedert;
+ *      Zeilen der Form "Merkmal: Wert" werden uebernommen.
+ *
+ * Am Ergebnis steht je Merkmal, aus welcher Quelle es stammt - im Review und in
+ * der Mappe ist das der Unterschied zwischen belegt und abgeleitet.
  */
 import { istPreisFeld } from './preissperre.ts';
 import {
@@ -18,10 +24,11 @@ import {
   abfragenAlsKarte,
   type OxomiBild,
   type OxomiDokument,
+  type OxomiMerkmal,
   type OxomiProdukt,
   type OxomiText,
 } from './endpunkte.ts';
-import type { ArtikelBild, ArtikelDokument, ArtikelFakt } from './types.ts';
+import type { ArtikelBild, ArtikelDokument, ArtikelFakt, Klassifikation } from './types.ts';
 
 const MAX_BILDER = 20;
 const MAX_FAKTEN = 40;
@@ -31,6 +38,7 @@ export interface Auswertung {
   bezeichnung?: string;
   langtext?: string;
   hersteller?: string;
+  klassifikation: Klassifikation | null;
   bilder: ArtikelBild[];
   fakten: ArtikelFakt[];
   dokumente: ArtikelDokument[];
@@ -41,6 +49,7 @@ export interface Auswertung {
 
 export function werteProduktAus(produkt: OxomiProdukt | undefined): Auswertung {
   const leer: Auswertung = {
+    klassifikation: null,
     bilder: [],
     fakten: [],
     dokumente: [],
@@ -59,18 +68,67 @@ export function werteProduktAus(produkt: OxomiProdukt | undefined): Auswertung {
     ...(abfragen[ABFRAGEARTEN.seiten]?.documents ?? []),
   ]);
 
-  const { bezeichnung, langtext, fakten, eigenschaften, hersteller } = werteTexteAus(texte);
+  const ausTexten = werteTexteAus(texte);
+
+  // Die Klassifikation hat Vorrang: Ihre Werte tragen Codes und sind zwischen
+  // Herstellern vergleichbar. Der Beschreibungstext springt nur ein, wenn sie fehlt.
+  const merkmalsAbfrage = abfragen[ABFRAGEARTEN.merkmale];
+  const klassifikation = alsKlassifikation(merkmalsAbfrage?.class);
+  const ausKlassifikation = werteMerkmaleAus(merkmalsAbfrage?.features ?? []);
 
   return {
-    bezeichnung,
-    langtext,
-    hersteller,
+    bezeichnung: ausTexten.bezeichnung,
+    langtext: ausTexten.langtext,
+    hersteller: ausTexten.hersteller,
+    klassifikation,
     bilder,
-    fakten,
+    fakten: ausKlassifikation.length > 0 ? ausKlassifikation : ausTexten.fakten,
     dokumente,
-    eigenschaften,
+    eigenschaften: ausTexten.eigenschaften,
     gefunden: produkt.resolved === true,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Klassifikation und Merkmale
+// ---------------------------------------------------------------------------
+
+function alsKlassifikation(klasse: { code?: string; name?: string; system?: string } | undefined) {
+  if (!klasse?.code) return null;
+  return {
+    code: klasse.code,
+    ...(klasse.name ? { bezeichnung: klasse.name } : {}),
+    ...(klasse.system ? { system: klasse.system } : {}),
+  };
+}
+
+/**
+ * Uebernimmt die Merkmale der Klassifikation unveraendert. Es wird nur
+ * ausgelassen, nie umgeschrieben: Merkmale ohne Namen oder Wert, Preisfelder
+ * (Grundregel 1) und Dubletten.
+ */
+function werteMerkmaleAus(merkmale: OxomiMerkmal[]): ArtikelFakt[] {
+  const ergebnis: ArtikelFakt[] = [];
+
+  for (const merkmal of merkmale) {
+    if (ergebnis.length >= MAX_FAKTEN) break;
+    const name = (merkmal.name ?? '').trim();
+    const wert = (merkmal.value ?? '').trim();
+    if (name === '' || wert === '') continue;
+    if (istPreisFeld(name)) continue;
+    if (ergebnis.some((f) => f.name === name)) continue;
+
+    ergebnis.push({
+      name,
+      wert,
+      ...(merkmal.unit ? { einheit: merkmal.unit } : {}),
+      ...(merkmal.code ? { code: merkmal.code } : {}),
+      quelle: 'oxomi',
+      herkunft: 'klassifikation',
+    });
+  }
+
+  return ergebnis;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,7 +278,7 @@ function werteTexteAus(texte: OxomiText[]): {
     if (wert.length > 200 || fakten.length >= MAX_FAKTEN) continue;
     if (fakten.some((f) => f.name === name)) continue;
 
-    fakten.push({ name, wert, quelle: 'oxomi' });
+    fakten.push({ name, wert, quelle: 'oxomi', herkunft: 'beschreibungstext' });
     // Ein Merkmalspaar ausserhalb eines Merkmalsabschnitts zaehlt trotzdem;
     // die Abschnitte steuern nur, was mit Zeilen OHNE Doppelpunkt passiert.
     void inMerkmalen;

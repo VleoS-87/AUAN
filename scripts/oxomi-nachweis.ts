@@ -115,7 +115,7 @@ async function hauptlauf(): Promise<void> {
   let mitFakten = 0;
   let mitMasszeichnung = 0;
   let mitKapitel = 0;
-  let mitEclass = 0;
+  let mitKlassifikation = 0;
 
   for (let n = 0; n < artikel.length; n += 1) {
     const a = artikel[n];
@@ -128,7 +128,7 @@ async function hauptlauf(): Promise<void> {
     if (d.fakten.length > 0) mitFakten += 1;
     if (zeichnungen.length > 0) mitMasszeichnung += 1;
     if (d.kapitelvorschlag.kapitel) mitKapitel += 1;
-    if (d.eclass) mitEclass += 1;
+    if (d.klassifikation) mitKlassifikation += 1;
 
     zeile(`  ${a.pietschNr} (${a.typ}) ${a.bezeichnung.slice(0, 46)}`);
     zeile(
@@ -139,10 +139,20 @@ async function hauptlauf(): Promise<void> {
     zeile(
       `     ${produktbilder.length} Produktbilder, ${zeichnungen.length} Maßzeichnungen, ${d.fakten.length} Merkmale, ${d.dokumente.length} Dokumente`,
     );
+    zeile(
+      `     Klassifikation: ${
+        d.klassifikation
+          ? `${d.klassifikation.code} ${d.klassifikation.bezeichnung ?? ''} (${d.klassifikation.system ?? '-'})`
+          : 'keine'
+      }`,
+    );
     zeile(`     Kapitelvorschlag: ${d.kapitelvorschlag.kapitel ?? '-'} (${d.kapitelvorschlag.grundlage})`);
     if (d.fakten.length > 0) {
-      const probe = d.fakten.slice(0, 6).map((f) => `${f.name}=${f.wert}`).join(' | ');
-      zeile(`     Fakten (Auszug): ${probe}`);
+      const probe = d.fakten
+        .slice(0, 6)
+        .map((f) => `${f.code ? `${f.code} ` : ''}${f.name}=${f.wert}`)
+        .join(' | ');
+      zeile(`     Fakten aus ${d.fakten[0].herkunft} (Auszug): ${probe}`);
     }
     if (produktbilder[0]) zeile(`     Erstes Bild: ${produktbilder[0].url.slice(0, 110)}`);
 
@@ -160,7 +170,7 @@ async function hauptlauf(): Promise<void> {
       artikel.length
     }), mit Bild ${mitBild}/${artikel.length}, mit Maßzeichnung ${mitMasszeichnung}/${
       artikel.length
-    }, mit Merkmalen ${mitFakten}/${artikel.length}, mit eCl@ss ${mitEclass}/${
+    }, mit Merkmalen ${mitFakten}/${artikel.length}, mit Klassifikation ${mitKlassifikation}/${
       artikel.length
     }, mit Kapitelvorschlag ${mitKapitel}/${artikel.length}`,
   );

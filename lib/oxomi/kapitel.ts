@@ -1,23 +1,30 @@
 /**
  * Kapitelvorschlag je Artikel.
  *
- * Grundlage laut UEBERGABE.md Abschnitt 7: die eCl@ss-Klassifikation aus OXOMI
- * als strukturierte Basis, ergaenzt um die Bewertung der Bezeichnung. Der
- * Vorschlag ist ein Vorschlag - im Review korrigiert der Badverkaeufer ihn per Klick.
+ * Grundlage laut UEBERGABE.md Abschnitt 7: die Klassifikation aus OXOMI als
+ * strukturierte Basis, ergaenzt um die Bewertung der Bezeichnung. Der Vorschlag
+ * ist ein Vorschlag - im Review korrigiert der Badverkaeufer ihn per Klick.
  *
- * OFFENER PUNKT (Stand T-A): Die Zuordnungstabelle eCl@ss-Code -> Kapitel ist
- * bewusst leer. Welche eCl@ss-Schluessel OXOMI im Pietsch-Portal tatsaechlich
- * liefert, misst erst dieser Testlauf. Erfundene Codes waeren ein Verstoss
- * gegen "Fakten nur aus Daten". Bis dahin traegt die Bezeichnung den Vorschlag;
- * ein eCl@ss-Klartext aus OXOMI wird mitgelesen, wenn er vorliegt.
+ * Das Fachkonzept nennt an dieser Stelle eCl@ss. Gemessen liefert das Portal
+ * das ETIM-Schema (Klassen EC…), von OXOMI als "metaclass" gefuehrt. Die
+ * Zuordnung arbeitet deshalb mit ETIM-Klassenschluesseln.
+ *
+ * Drei Stufen, in dieser Reihenfolge:
+ *   1. Klassenschluessel (z. B. EC011550). Eindeutig, sprachunabhaengig.
+ *   2. Klartext der Klasse (z. B. "Waschbecken"). Traegt auch dann, wenn der
+ *      Schluessel noch nicht in der Tabelle steht.
+ *   3. Artikelbezeichnung aus dem Angebot. Letzter Rueckfall.
  */
 import type { Kapitel, Kapitelvorschlag } from './types.ts';
 
 /**
- * eCl@ss-Schluessel -> Kapitel. Wird aus den im Testlauf gemessenen Codes
- * gefuellt, nicht geraten. Ein Praefix genuegt (z. B. "30-11-05").
+ * Klassenschluessel -> Kapitel. Gefuellt aus den Klassen, die der Testlauf am
+ * 25.08.2026 wirklich geliefert hat - nicht aus einer Codeliste geraten.
+ * Ein Praefix genuegt, damit verwandte Klassen mitlaufen.
  */
-export const ECLASS_KAPITEL: ReadonlyArray<{ praefix: string; kapitel: Kapitel }> = [];
+export const KLASSE_KAPITEL: ReadonlyArray<{ code: string; kapitel: Kapitel; bezeichnung: string }> = [
+  { code: 'EC011550', kapitel: 'Waschtischanlage', bezeichnung: 'Waschbecken' },
+];
 
 /**
  * Stichworte aus der Sprache des Sortiments. Laengster Treffer gewinnt, damit
@@ -50,6 +57,8 @@ const STICHWORTE: ReadonlyArray<{ wort: string; kapitel: Kapitel }> = [
   { wort: 'wt-anlage', kapitel: 'Waschtischanlage' },
   { wort: 'wtu', kapitel: 'Waschtischanlage' },
   { wort: 'aufsatzbecken', kapitel: 'Waschtischanlage' },
+  { wort: 'waschbecken', kapitel: 'Waschtischanlage' },
+  { wort: 'handwaschbecken', kapitel: 'Waschtischanlage' },
   { wort: 'aufsatzschale', kapitel: 'Waschtischanlage' },
   { wort: 'spiegelschrank', kapitel: 'Waschtischanlage' },
   { wort: 'lichtspiegel', kapitel: 'Waschtischanlage' },
@@ -122,27 +131,47 @@ function normalisiere(text: string): string {
  * Der eCl@ss-Code hat Vorrang, sobald die Tabelle gefuellt ist.
  */
 export function schlageKapitelVor(eingabe: {
-  eclassCode?: string | null;
-  eclassBezeichnung?: string | null;
+  klassifikationCode?: string | null;
+  klassifikationBezeichnung?: string | null;
   bezeichnung?: string | null;
 }): Kapitelvorschlag {
-  const code = (eingabe.eclassCode ?? '').trim();
+  // 1. Klassenschluessel - eindeutig und sprachunabhaengig.
+  const code = (eingabe.klassifikationCode ?? '').trim().toUpperCase();
   if (code) {
-    const treffer = ECLASS_KAPITEL.find((e) => code.startsWith(e.praefix));
+    const treffer = KLASSE_KAPITEL.find((e) => code.startsWith(e.code));
     if (treffer) {
-      return { kapitel: treffer.kapitel, grundlage: 'eclass', beleg: treffer.praefix };
+      return { kapitel: treffer.kapitel, grundlage: 'klassifikation', beleg: treffer.code };
     }
   }
 
-  const text = normalisiere(`${eingabe.bezeichnung ?? ''} ${eingabe.eclassBezeichnung ?? ''}`);
-  if (text.trim() === '') return { kapitel: null, grundlage: 'kein_vorschlag' };
-
-  let bester: { wort: string; kapitel: Kapitel } | null = null;
-  for (const eintrag of STICHWORTE) {
-    if (!text.includes(eintrag.wort)) continue;
-    if (!bester || eintrag.wort.length > bester.wort.length) bester = eintrag;
+  // 2. Klartext der Klasse - traegt auch bei noch unbekanntem Schluessel.
+  const klassenname = (eingabe.klassifikationBezeichnung ?? '').trim();
+  if (klassenname) {
+    const treffer = findeStichwort(klassenname);
+    if (treffer) {
+      return { kapitel: treffer.kapitel, grundlage: 'klassenname', beleg: klassenname };
+    }
   }
 
-  if (!bester) return { kapitel: null, grundlage: 'kein_vorschlag' };
-  return { kapitel: bester.kapitel, grundlage: 'bezeichnung', beleg: bester.wort };
+  // 3. Artikelbezeichnung aus dem Angebot.
+  const bezeichnung = (eingabe.bezeichnung ?? '').trim();
+  if (bezeichnung) {
+    const treffer = findeStichwort(bezeichnung);
+    if (treffer) {
+      return { kapitel: treffer.kapitel, grundlage: 'bezeichnung', beleg: treffer.wort };
+    }
+  }
+
+  return { kapitel: null, grundlage: 'kein_vorschlag' };
+}
+
+/** Laengster passender Stichworttreffer in einem Text. */
+function findeStichwort(text: string): { wort: string; kapitel: Kapitel } | null {
+  const gesucht = normalisiere(text);
+  let bester: { wort: string; kapitel: Kapitel } | null = null;
+  for (const eintrag of STICHWORTE) {
+    if (!gesucht.includes(eintrag.wort)) continue;
+    if (!bester || eintrag.wort.length > bester.wort.length) bester = eintrag;
+  }
+  return bester;
 }

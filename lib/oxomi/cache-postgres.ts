@@ -76,9 +76,9 @@ export function postgresCache(): ArtikelCacheSpeicher {
       await db.query(
         `INSERT INTO artikel_cache (
            cache_schluessel, pietsch_nr, hersteller, werksnummer, ean, status,
-           bezeichnung, serie, eclass_code, kapitel_vorschlag, quelle, suchweg,
+           bezeichnung, serie, klassifikation_code, klassifikation_system, kapitel_vorschlag, quelle, suchweg,
            anzahl_bilder, anzahl_fakten, daten, stand, aktualisiert_am
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, now())
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17, now())
          ON CONFLICT (cache_schluessel) DO UPDATE SET
            pietsch_nr = EXCLUDED.pietsch_nr,
            hersteller = EXCLUDED.hersteller,
@@ -87,7 +87,8 @@ export function postgresCache(): ArtikelCacheSpeicher {
            status = EXCLUDED.status,
            bezeichnung = EXCLUDED.bezeichnung,
            serie = EXCLUDED.serie,
-           eclass_code = EXCLUDED.eclass_code,
+           klassifikation_code = EXCLUDED.klassifikation_code,
+           klassifikation_system = EXCLUDED.klassifikation_system,
            kapitel_vorschlag = EXCLUDED.kapitel_vorschlag,
            quelle = EXCLUDED.quelle,
            suchweg = EXCLUDED.suchweg,
@@ -105,7 +106,8 @@ export function postgresCache(): ArtikelCacheSpeicher {
           sicher.status,
           sicher.bezeichnung ?? null,
           sicher.serie ?? null,
-          sicher.eclass?.code ?? null,
+          sicher.klassifikation?.code ?? null,
+          sicher.klassifikation?.system ?? null,
           sicher.kapitelvorschlag.kapitel ?? null,
           sicher.quelle,
           sicher.suchweg ?? null,

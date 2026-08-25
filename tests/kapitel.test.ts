@@ -30,3 +30,30 @@ test('ohne Anhaltspunkt gibt es keinen Vorschlag statt eines geratenen', () => {
   assert.equal(v.kapitel, null);
   assert.equal(v.grundlage, 'kein_vorschlag');
 });
+
+test('der Klassenschluessel hat Vorrang vor der Bezeichnung', () => {
+  const v = schlageKapitelVor({
+    klassifikationCode: 'EC011550',
+    klassifikationBezeichnung: 'Waschbecken',
+    bezeichnung: 'Irgendein WC',
+  });
+  assert.equal(v.kapitel, 'Waschtischanlage');
+  assert.equal(v.grundlage, 'klassifikation');
+  assert.equal(v.beleg, 'EC011550');
+});
+
+test('bei unbekanntem Schluessel traegt der Klartext der Klasse', () => {
+  const v = schlageKapitelVor({
+    klassifikationCode: 'EC999999',
+    klassifikationBezeichnung: 'Waschbecken',
+    bezeichnung: null,
+  });
+  assert.equal(v.kapitel, 'Waschtischanlage');
+  assert.equal(v.grundlage, 'klassenname');
+});
+
+test('ohne Klassifikation bleibt die Bezeichnung als Rueckfall', () => {
+  const v = schlageKapitelVor({ bezeichnung: 'VB Wand-Tiefspül-WC spülrandlos' });
+  assert.equal(v.kapitel, 'WC-Anlage');
+  assert.equal(v.grundlage, 'bezeichnung');
+});

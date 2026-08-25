@@ -170,7 +170,7 @@ async function Pruefung({
         <Kennzahl zahl={`${a.mitBild} / ${a.gesamt}`} beschriftung="mit Produktbild" />
         <Kennzahl zahl={`${a.mitMasszeichnung} / ${a.gesamt}`} beschriftung="mit Maßzeichnung" />
         <Kennzahl zahl={`${a.mitFakten} / ${a.gesamt}`} beschriftung="mit Merkmalen" />
-        <Kennzahl zahl={`${a.mitEclass} / ${a.gesamt}`} beschriftung="mit eCl@ss" />
+        <Kennzahl zahl={`${a.mitKlassifikation} / ${a.gesamt}`} beschriftung="mit Klassifikation" />
         <Kennzahl zahl={`${a.mitKapitel} / ${a.gesamt}`} beschriftung="mit Kapitelvorschlag" />
       </div>
 
@@ -290,15 +290,18 @@ function ArtikelKarte({ zeile, mitDiagnose }: { zeile: PruefErgebnisZeile; mitDi
               <td colSpan={3}>{d.bezeichnung ?? '-'}</td>
             </tr>
             <tr>
-              <td>eCl@ss</td>
+              <td>Klassifikation</td>
               <td>
-                {d.eclass ? (
+                {d.klassifikation ? (
                   <>
-                    <span className="mono">{d.eclass.code}</span>
-                    {d.eclass.bezeichnung ? ` – ${d.eclass.bezeichnung}` : ''}
+                    <span className="mono">{d.klassifikation.code}</span>
+                    {d.klassifikation.bezeichnung ? ` – ${d.klassifikation.bezeichnung}` : ''}
+                    {d.klassifikation.system ? (
+                      <span className="leise"> ({d.klassifikation.system})</span>
+                    ) : null}
                   </>
                 ) : (
-                  'liefert dieses Portal nicht'
+                  '-'
                 )}
               </td>
               <td>Kapitelvorschlag</td>
@@ -354,17 +357,27 @@ function ArtikelKarte({ zeile, mitDiagnose }: { zeile: PruefErgebnisZeile; mitDi
             <table>
               <thead>
                 <tr>
+                  <th>Schluessel</th>
                   <th>Merkmal</th>
                   <th>Wert</th>
+                  <th>Herkunft</th>
                 </tr>
               </thead>
               <tbody>
                 {d.fakten.map((f, i) => (
                   <tr key={i}>
+                    <td className="mono">{f.code ?? '-'}</td>
                     <td>{f.name}</td>
                     <td>
                       {f.wert}
                       {f.einheit ? ` ${f.einheit}` : ''}
+                    </td>
+                    <td>
+                      {f.herkunft === 'klassifikation' ? (
+                        <span className="marke gut">Klassifikation</span>
+                      ) : (
+                        <span className="marke teil">Beschreibungstext</span>
+                      )}
                     </td>
                   </tr>
                 ))}

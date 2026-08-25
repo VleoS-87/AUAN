@@ -8,6 +8,7 @@
  */
 import { migration0001 } from './0001_artikel_cache.ts';
 import { migration0002 } from './0002_oxomi_lieferant.ts';
+import { migration0003 } from './0003_klassifikation.ts';
 
 export interface Migration {
   id: string;
@@ -15,4 +16,4 @@ export interface Migration {
   anweisungen: string[];
 }
 
-export const MIGRATIONEN: ReadonlyArray<Migration> = [migration0001, migration0002];
+export const MIGRATIONEN: ReadonlyArray<Migration> = [migration0001, migration0002, migration0003];

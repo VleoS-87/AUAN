@@ -65,11 +65,18 @@ export interface ArtikelBild {
 export interface ArtikelFakt {
   /** Merkmalsname, z. B. "Breite". */
   name: string;
-  /** Wert als Text, z. B. "550". */
+  /** Wert als Text, z. B. "550 mm". */
   wert: string;
-  /** Einheit, z. B. "mm". */
+  /** Einheit, z. B. "mm" - nur wenn OXOMI sie getrennt fuehrt. */
   einheit?: string;
+  /** Merkmalsschluessel der Klassifikation, z. B. "EF000007". */
+  code?: string;
   quelle: Inhaltsquelle;
+  /**
+   * Woher der Wert stammt: aus der Klassifikation (belastbar, mit Code) oder
+   * aus dem Beschreibungstext (Rueckfall, ohne Code).
+   */
+  herkunft: 'klassifikation' | 'beschreibungstext' | 'manuell';
 }
 
 /** Wie OXOMI den Artikel intern fuehrt. Ergebnis der EAN-Aufloesung. */
@@ -81,11 +88,22 @@ export interface OxomiKennung {
   productId?: string;
 }
 
-export interface EclassInfo {
-  /** Klassifikationsschluessel, wie OXOMI ihn liefert. */
+/**
+ * Klassifikation des Artikels.
+ *
+ * Das Fachkonzept nennt an dieser Stelle eCl@ss. Gemessen liefert das Portal
+ * stattdessen das ETIM-Schema (Klassen EC…, Merkmale EF…), von OXOMI als
+ * "metaclass" gefuehrt - im SHK-Bereich die verbreitetere Klassifikation.
+ * Deshalb ist das Feld allgemein gehalten und nennt das System mit.
+ */
+export interface Klassifikation {
+  /** Klassenschluessel, z. B. "EC011550". */
   code: string;
-  version?: string;
+  /** Klartext der Klasse, z. B. "Waschbecken". */
   bezeichnung?: string;
+  /** Klassifikationssystem, z. B. "metaclass" (ETIM-Schema) oder "eclass". */
+  system?: string;
+  version?: string;
 }
 
 export interface ArtikelDokument {
@@ -108,7 +126,7 @@ export type Kapitel =
 export interface Kapitelvorschlag {
   kapitel: Kapitel | null;
   /** Woraus der Vorschlag stammt - fuer den Review sichtbar. */
-  grundlage: 'eclass' | 'bezeichnung' | 'kein_vorschlag';
+  grundlage: 'klassifikation' | 'klassenname' | 'bezeichnung' | 'kein_vorschlag';
   /** Der Treffer, der den Ausschlag gab (Stichwort oder eCl@ss-Code). */
   beleg?: string;
 }
@@ -129,7 +147,8 @@ export interface ArtikelDaten {
   fakten: ArtikelFakt[];
   /** Freitext-Eigenschaften ohne Merkmalsnamen, z. B. "Unterbaufaehig". */
   eigenschaften: string[];
-  eclass?: EclassInfo | null;
+  /** Klassifikation aus OXOMI. Feld `eclass` im Datenmodell der UEBERGABE. */
+  klassifikation?: Klassifikation | null;
   dokumente: ArtikelDokument[];
   kapitelvorschlag: Kapitelvorschlag;
   /** Die Kennung, unter der OXOMI den Artikel fuehrt. Fuer Folgeabfragen. */

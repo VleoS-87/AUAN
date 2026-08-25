@@ -14,7 +14,7 @@ export type {
   ArtikelFakt,
   ArtikelSchluessel,
   AufrufDiagnose,
-  EclassInfo,
+  Klassifikation,
   Kapitel,
   Kapitelvorschlag,
   OxomiKennung,
@@ -45,7 +45,7 @@ export {
   type LieferantZuordnung,
 } from './lieferanten.ts';
 
-export { schlageKapitelVor, ECLASS_KAPITEL } from './kapitel.ts';
+export { schlageKapitelVor, KLASSE_KAPITEL } from './kapitel.ts';
 export { istPreisFeld, entfernePreisfelder } from './preissperre.ts';
 export { fehlendeZugangsdaten, istKonfiguriert, ladeKonfiguration, loesePortalKennung } from './config.ts';
 export { werteProduktAus, type Auswertung } from './auswertung.ts';

@@ -32,7 +32,7 @@ test('geschriebene Eintraege werden wiedergefunden', async () => {
     bilder: [],
     fakten: [],
     eigenschaften: [],
-    eclass: null,
+    klassifikation: null,
     dokumente: [],
     kapitelvorschlag: { kapitel: 'Waschtischanlage', grundlage: 'bezeichnung' },
     quelle: 'oxomi',

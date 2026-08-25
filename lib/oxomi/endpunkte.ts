@@ -23,16 +23,25 @@ export const PRODUKTDATEN_V1 = '/portals/api/v1/product/data';
 /**
  * Abfragearten, die dieses Portal kennt (gemessen).
  *
- * NICHT verfuegbar sind: attributes, product-attributes, classification, eclass,
- * details, product-details, product-texts, brand, series, catalogs, datasheet,
- * documents. Sie antworten mit "Cannot find ... of type ProductDataProvider".
+ * Die wichtigste ist `features`: Sie liefert die Klassifikation des Artikels und
+ * seine Merkmale als saubere Name/Wert-Paare mit Codes - im ETIM-Schema
+ * (Klassen EC…, Merkmale EF…), von OXOMI als "metaclass" gefuehrt. Das ist die
+ * strukturierte Faktengrundlage, die das Fachkonzept unter dem Stichwort
+ * eCl@ss vorgesehen hatte.
  *
- * Folge: Eine maschinenlesbare eCl@ss-Klassifikation liefert dieses Portal nicht.
- * Die Merkmale stecken stattdessen im Beschreibungstext und werden dort
- * ausgelesen (siehe auswertung.ts).
+ * NICHT verfuegbar sind: eclass, classification, attributes, etim (unter diesem
+ * Namen), details, product-details, product-texts, brand, series, catalogs,
+ * datasheet, documents. Sie antworten mit "Cannot find ... of type
+ * ProductDataProvider".
+ *
+ * BEWUSST NICHT ABGEFRAGT wird `properties`. Die Abfrage existiert, liefert aber
+ * kaufmaennische und logistische Angaben (Gefahrgut, Zolltarif, Lieferzeit,
+ * WEEE-Nummer, Verkaufsinformationen). Nichts davon gehoert in eine
+ * Kundenmappe, und der Block traegt Verkaufsdaten - er bleibt draussen.
  */
 export const ABFRAGEARTEN = {
   bilder: 'product-images',
+  merkmale: 'features',
   texte: 'texts',
   anhaenge: 'attachments',
   seiten: 'pages',
@@ -43,6 +52,7 @@ export const ABFRAGEARTEN = {
 export function baueAbfragen(maxBilder = 12): Record<string, unknown> {
   return {
     [ABFRAGEARTEN.bilder]: { type: 'json', settings: { limit: maxBilder } },
+    [ABFRAGEARTEN.merkmale]: { type: 'json' },
     [ABFRAGEARTEN.texte]: { type: 'json' },
     [ABFRAGEARTEN.anhaenge]: { type: 'json' },
     [ABFRAGEARTEN.seiten]: { type: 'json' },
@@ -97,6 +107,23 @@ export interface OxomiDokument {
   pages?: Array<{ pageNumber?: number; previewUrl?: string; mediumUrl?: string }>;
 }
 
+/** Klassifikation des Artikels, z. B. {code: "EC011550", name: "Waschbecken"}. */
+export interface OxomiKlasse {
+  code?: string;
+  name?: string;
+  /** Klassifikationssystem, gemessen: "metaclass" (ETIM-Schema). */
+  system?: string;
+}
+
+/** Ein Merkmal, z. B. {code: "EF000007", name: "Farbe", value: "weiß"}. */
+export interface OxomiMerkmal {
+  code?: string;
+  system?: string;
+  name?: string;
+  value?: string;
+  unit?: string;
+}
+
 export interface OxomiAbfrageErgebnis {
   type?: string;
   error?: boolean;
@@ -105,6 +132,8 @@ export interface OxomiAbfrageErgebnis {
   texts?: OxomiText[];
   attachments?: OxomiDokument[];
   documents?: OxomiDokument[];
+  class?: OxomiKlasse;
+  features?: OxomiMerkmal[];
 }
 
 export interface OxomiProdukt {

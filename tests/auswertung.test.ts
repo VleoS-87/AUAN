@@ -229,3 +229,82 @@ test('ein Merkmalsname traegt kein Komma', () => {
   assert.equal(a.fakten[0]?.name, 'EAN Nummer');
   assert.equal(a.fakten[0]?.wert, '4051202285432');
 });
+
+// ---------------------------------------------------------------------------
+// Klassifikation und Merkmale
+//
+// Die Testdaten sind ein wortgetreuer Ausschnitt der echten Antwort des
+// Pietsch-Portals zum Geberit Renova Plan Waschtisch, gemessen am 25.08.2026.
+// ---------------------------------------------------------------------------
+
+const MIT_KLASSIFIKATION: OxomiProdukt = {
+  supplierNumber: '16060',
+  itemNumber: '501632001',
+  resolved: true,
+  queries: {
+    features: {
+      type: 'json',
+      error: false,
+      class: { code: 'EC011550', name: 'Waschbecken', system: 'metaclass' },
+      features: [
+        { code: 'EF004567', system: 'metaclass', name: 'Breite/Durchmesser', value: '550 mm' },
+        { code: 'EF000049', system: 'metaclass', name: 'Tiefe', value: '440 mm' },
+        { code: 'EF000003', system: 'metaclass', name: 'Montageart', value: 'Wand' },
+        { code: 'EF002169', system: 'metaclass', name: 'Werkstoff', value: 'Keramik' },
+        { code: 'EF000007', system: 'metaclass', name: 'Farbe', value: 'weiß' },
+        { code: 'EF999999', system: 'metaclass', name: 'Listenpreis', value: '249,00 EUR' },
+        { code: 'EF000000', system: 'metaclass', name: 'Ohne Wert', value: '' },
+      ],
+    },
+    texts: {
+      type: 'json',
+      error: false,
+      texts: [{ type: 'DESCRIPTION', normalizedText: 'Technische Eigenschaften\nFarbe: grau' }],
+    },
+  },
+};
+
+test('liest die Klassifikation mit Schluessel und System', () => {
+  const a = werteProduktAus(MIT_KLASSIFIKATION);
+  assert.equal(a.klassifikation?.code, 'EC011550');
+  assert.equal(a.klassifikation?.bezeichnung, 'Waschbecken');
+  assert.equal(a.klassifikation?.system, 'metaclass');
+});
+
+test('nimmt die Merkmale der Klassifikation unveraendert, mit Schluessel', () => {
+  const a = werteProduktAus(MIT_KLASSIFIKATION);
+  const breite = a.fakten.find((f) => f.name === 'Breite/Durchmesser');
+  assert.equal(breite?.wert, '550 mm');
+  assert.equal(breite?.code, 'EF004567');
+  assert.equal(breite?.herkunft, 'klassifikation');
+});
+
+test('die Klassifikation hat Vorrang vor dem Beschreibungstext', () => {
+  const a = werteProduktAus(MIT_KLASSIFIKATION);
+  const farbe = a.fakten.find((f) => f.name === 'Farbe');
+  assert.equal(farbe?.wert, 'weiß', 'der Wert der Klassifikation gewinnt, nicht der Text');
+  assert.ok(
+    a.fakten.every((f) => f.herkunft === 'klassifikation'),
+    'solange die Klassifikation Merkmale liefert, wird der Text nicht angefasst',
+  );
+});
+
+test('auch in der Klassifikation greift die Preissperre', () => {
+  const a = werteProduktAus(MIT_KLASSIFIKATION);
+  assert.equal(
+    a.fakten.some((f) => /preis/i.test(f.name) || f.wert.includes('249')),
+    false,
+  );
+});
+
+test('Merkmale ohne Wert werden ausgelassen', () => {
+  const a = werteProduktAus(MIT_KLASSIFIKATION);
+  assert.equal(a.fakten.some((f) => f.name === 'Ohne Wert'), false);
+});
+
+test('ohne Klassifikation springt der Beschreibungstext ein', () => {
+  const a = werteProduktAus(PRODUKT);
+  assert.equal(a.klassifikation, null);
+  assert.ok(a.fakten.length > 0);
+  assert.ok(a.fakten.every((f) => f.herkunft === 'beschreibungstext'));
+});

@@ -37,11 +37,11 @@ export interface Auswertung {
   mitBild: number;
   mitMasszeichnung: number;
   mitFakten: number;
-  mitEclass: number;
+  mitKlassifikation: number;
   mitKapitel: number;
   trefferquoteProzent: number;
   bildquoteProzent: number;
-  eclassquoteProzent: number;
+  klassifikationsquoteProzent: number;
   nachTyp: Array<{ typ: string; gesamt: number; treffer: number; bilder: number; fakten: number }>;
   luecken: string[];
 }
@@ -150,7 +150,7 @@ function werteAus(zeilen: PruefErgebnisZeile[]): Auswertung {
   const mitBild = daten.filter((d) => produktbilder(d).length > 0).length;
   const mitMasszeichnung = daten.filter((d) => masszeichnungen(d).length > 0).length;
   const mitFakten = daten.filter((d) => d.fakten.length > 0).length;
-  const mitEclass = daten.filter((d) => Boolean(d.eclass)).length;
+  const mitKlassifikation = daten.filter((d) => Boolean(d.klassifikation)).length;
   const mitKapitel = daten.filter((d) => d.kapitelvorschlag.kapitel !== null).length;
 
   const typen = new Map<string, { gesamt: number; treffer: number; bilder: number; fakten: number }>();
@@ -195,11 +195,11 @@ function werteAus(zeilen: PruefErgebnisZeile[]): Auswertung {
     mitBild,
     mitMasszeichnung,
     mitFakten,
-    mitEclass,
+    mitKlassifikation,
     mitKapitel,
     trefferquoteProzent: quote(treffer),
     bildquoteProzent: quote(mitBild),
-    eclassquoteProzent: quote(mitEclass),
+    klassifikationsquoteProzent: quote(mitKlassifikation),
     nachTyp: [...typen.entries()].map(([typ, w]) => ({ typ, ...w })),
     luecken,
   };
