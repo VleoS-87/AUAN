@@ -26,9 +26,12 @@ export const STANDARD_ROLLEN = 'shop';
 
 /** Fehlende Zugangsdaten sind kein Absturz, sondern ein benennbarer Zustand. */
 export class OxomiNichtKonfiguriertError extends Error {
-  constructor(public fehlendeVariablen: string[]) {
+  readonly fehlendeVariablen: string[];
+
+  constructor(fehlendeVariablen: string[]) {
     super(`OXOMI-Zugangsdaten unvollstaendig: ${fehlendeVariablen.join(', ')}`);
     this.name = 'OxomiNichtKonfiguriertError';
+    this.fehlendeVariablen = fehlendeVariablen;
   }
 }
 

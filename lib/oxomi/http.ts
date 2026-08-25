@@ -28,10 +28,13 @@ export class Drossel {
   private warteschlange: Array<() => void> = [];
   private letzterStart = 0;
 
-  constructor(
-    private maxParallel: number,
-    private mindestabstandMs: number,
-  ) {}
+  private readonly maxParallel: number;
+  private readonly mindestabstandMs: number;
+
+  constructor(maxParallel: number, mindestabstandMs: number) {
+    this.maxParallel = maxParallel;
+    this.mindestabstandMs = mindestabstandMs;
+  }
 
   async fuehreAus<T>(aufgabe: () => Promise<T>): Promise<T> {
     await this.platzHolen();
