@@ -132,16 +132,30 @@ function zeigeAbschnitt(html: string, marke: RegExp, laenge: number): boolean {
   return true;
 }
 
+/** Druckt die Dokumentation rund um einen Endpunktpfad - dort steht die Parametertabelle. */
+function zeigeEndpunkt(text: string, pfad: string, laenge: number): boolean {
+  const stelle = text.indexOf(pfad);
+  if (stelle < 0) return false;
+  drucke(text.slice(Math.max(0, stelle - 160), stelle + laenge));
+  return true;
+}
+
 async function leseDokumentation(): Promise<void> {
-  zeile('TEIL 1 - Dokumentation lesen (Suche nach den Abfragearten der Produktauskunft)');
-  const produkt = await holeText('https://oxomi.com/system/api/product');
-  if (produkt) {
-    if (!zeigeAbschnitt(produkt, /Resolve GTIN to Product/i, 2200)) {
-      zeile('    (Abschnitt Resolve-GTIN nicht gefunden)');
-    }
-    if (!zeigeAbschnitt(produkt, /Search Products via Query Text/i, 2200)) {
-      zeile('    (Abschnitt Produktsuche nicht gefunden)');
-    }
+  zeile('TEIL 1 - Dokumentation: Parametertabellen der einzelnen Endpunkte');
+  const html = await holeText('https://oxomi.com/system/api/product');
+  if (!html) {
+    zeile();
+    return;
+  }
+  const text = alsText(html);
+
+  for (const pfad of [
+    '/portals/api/v1/products/resolve-gtin',
+    '/portals/api/v2/products/search',
+    '/portals/api/v1/product/data',
+  ]) {
+    zeile(`  ${pfad}:`);
+    if (!zeigeEndpunkt(text, pfad, 1500)) zeile('    (nicht gefunden)');
   }
   zeile();
 }
@@ -200,15 +214,17 @@ async function probiereAnmeldung(
       user: konfiguration.user,
       accessToken,
       itemNumber1: TESTARTIKEL.werksnummer,
+      supplierNumber1: TESTARTIKEL.hersteller,
     };
     if (variante.rollenSenden) params.roles = konfiguration.rollen;
     if (variante.expiresSenden) params.expires = String(expires);
 
     const url = baueUrl(konfiguration.basisUrl, PRODUKT_V1, params);
     const e = await rufeAuf(url, ohneWiederholung, drossel);
-    const gut =
-      e.httpStatus === 200 &&
-      (e.koerper as { success?: boolean } | undefined)?.success !== false;
+    // Die Anmeldung ist bestanden, sobald OXOMI nicht mehr "Unauthorized" meldet.
+    // Ein Hinweis auf einen fehlenden Pflichtparameter heisst: Token akzeptiert.
+    const meldung = String((e.koerper as { message?: unknown } | undefined)?.message ?? '');
+    const gut = e.httpStatus !== 401 && !/unauthorized/i.test(meldung);
     if (gut && !erfolg) erfolg = variante;
 
     zeile(`  ${gut ? 'JA  ' : 'nein'} ${variante.name} -> HTTP ${e.httpStatus ?? '-'} (${e.dauerMs} ms)`);
@@ -311,28 +327,43 @@ async function probiereArtikel(
     zeile(`        ${antwortAuszug(e.koerper, e.rohtext, 900)}`);
   }
 
-  // --- 3c: EAN aufloesen und Volltextsuche ------------------------------
-  zeile('  3c) EAN aufloesen und Volltextsuche');
-  const gtinVersuche: Array<{ name: string; pfad: string; params: Record<string, string> }> = [
-    { name: 'resolve-gtin (gtin)', pfad: '/portals/api/v1/products/resolve-gtin', params: { gtin: TESTARTIKEL.ean } },
-    { name: 'resolve-gtin (gtin1)', pfad: '/portals/api/v1/products/resolve-gtin', params: { gtin1: TESTARTIKEL.ean } },
-    { name: 'resolve-gtin (number)', pfad: '/portals/api/v1/products/resolve-gtin', params: { number: TESTARTIKEL.ean } },
+  // --- 3c: EAN aufloesen ------------------------------------------------
+  zeile('  3c) EAN aufloesen (liefert vermutlich supplierNumber und itemNumber)');
+  const gtinVersuche: Array<{ name: string; params: Record<string, string> }> = [
+    { name: 'gtin', params: { gtin: TESTARTIKEL.ean } },
+    { name: 'gtin1', params: { gtin1: TESTARTIKEL.ean } },
+    { name: 'number', params: { number: TESTARTIKEL.ean } },
+    { name: 'ean', params: { ean: TESTARTIKEL.ean } },
+    { name: 'query', params: { query: TESTARTIKEL.ean } },
   ];
   for (const versuch of gtinVersuche) {
-    const url = baueUrl(konfiguration.basisUrl, versuch.pfad, { ...zugang, ...versuch.params });
+    const url = baueUrl(konfiguration.basisUrl, '/portals/api/v1/products/resolve-gtin', {
+      ...zugang,
+      ...versuch.params,
+    });
     const e = await rufeAuf(url, ohneWiederholung, drossel);
-    zeile(`     ${versuch.name} -> HTTP ${e.httpStatus ?? '-'} (${e.dauerMs} ms)`);
-    zeile(`        ${ohneGeheimnis(url)}`);
+    zeile(`     Parameter "${versuch.name}" -> HTTP ${e.httpStatus ?? '-'} (${e.dauerMs} ms)`);
     zeile(`        ${antwortAuszug(e.koerper, e.rohtext, 700)}`);
   }
 
+  // --- 3d: Volltextsuche ------------------------------------------------
+  zeile('  3d) Volltextsuche');
   const sucheUrl = baueUrl(konfiguration.basisUrl, '/portals/api/v2/products/search', zugang);
-  const suche = await rufeAuf(sucheUrl, ohneWiederholung, drossel, {
-    methode: 'POST',
-    koerper: { query: TESTARTIKEL.werksnummer },
-  });
-  zeile(`     Volltextsuche (POST query) -> HTTP ${suche.httpStatus ?? '-'} (${suche.dauerMs} ms)`);
-  zeile(`        ${antwortAuszug(suche.koerper, suche.rohtext, 900)}`);
+  const suchRuempfe: Array<{ name: string; koerper: unknown }> = [
+    { name: '{query}', koerper: { query: TESTARTIKEL.werksnummer } },
+    { name: '{text}', koerper: { text: TESTARTIKEL.werksnummer } },
+    { name: '{queryText}', koerper: { queryText: TESTARTIKEL.werksnummer } },
+    { name: '{query, EAN}', koerper: { query: TESTARTIKEL.ean } },
+    { name: '{query, Pietsch-Nr}', koerper: { query: TESTARTIKEL.pietschNr } },
+  ];
+  for (const rumpf of suchRuempfe) {
+    const e = await rufeAuf(sucheUrl, ohneWiederholung, drossel, {
+      methode: 'POST',
+      koerper: rumpf.koerper,
+    });
+    zeile(`     ${rumpf.name} -> HTTP ${e.httpStatus ?? '-'} (${e.dauerMs} ms)`);
+    zeile(`        ${antwortAuszug(e.koerper, e.rohtext, 900)}`);
+  }
   zeile();
 }
 
