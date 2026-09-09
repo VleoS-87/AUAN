@@ -1,0 +1,97 @@
+/*
+ * Design-Tokens laut UEBERGABE.md Abschnitt 9.
+ * Grundstil badpunkt: cleanes Schwarz-Weiss-Fundament, serifenlos, Akzent Gruen.
+ * Der spaetere CI-Wechsel auf Bad Ambiente ist ein Tausch dieser Werte.
+ */
+:root {
+  --farbe-grund: #ffffff;
+  --farbe-text: #111111;
+  --farbe-text-leise: #5f6368;
+  --farbe-linie: #e3e5e8;
+  --farbe-flaeche: #f7f8f9;
+  --farbe-akzent: #4a8f3c;
+  --farbe-akzent-leise: #eef5ec;
+  --farbe-warnung: #b26a00;
+  --farbe-warnung-leise: #fdf3e3;
+  --farbe-fehler: #a32a1f;
+  --farbe-fehler-leise: #fbeceb;
+
+  --schrift: 'Inter', 'Helvetica Neue', Arial, system-ui, sans-serif;
+  --radius: 8px;
+  --abstand: 16px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--farbe-grund);
+  color: var(--farbe-text);
+  font-family: var(--schrift);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--farbe-akzent); }
+
+.huelle { max-width: 1080px; margin: 0 auto; padding: 32px 20px 80px; }
+
+h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 4px; }
+h2 { font-size: 18px; font-weight: 600; margin: 32px 0 12px; }
+h3 { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
+p.leise { color: var(--farbe-text-leise); margin: 0 0 20px; }
+
+.karte {
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+  padding: var(--abstand);
+  margin-bottom: 14px;
+  background: var(--farbe-grund);
+}
+.karte.flaeche { background: var(--farbe-flaeche); }
+
+.kennzahlen { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+.kennzahl {
+  flex: 1 1 150px; border: 1px solid var(--farbe-linie); border-radius: var(--radius);
+  padding: 12px 14px; background: var(--farbe-flaeche);
+}
+.kennzahl .zahl { font-size: 24px; font-weight: 600; line-height: 1.15; }
+.kennzahl .beschriftung { font-size: 12px; color: var(--farbe-text-leise); text-transform: uppercase; letter-spacing: .04em; }
+
+.marke {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; letter-spacing: .01em;
+}
+.marke.gut { background: var(--farbe-akzent-leise); color: var(--farbe-akzent); }
+.marke.teil { background: var(--farbe-warnung-leise); color: var(--farbe-warnung); }
+.marke.schlecht { background: var(--farbe-fehler-leise); color: var(--farbe-fehler); }
+.marke.neutral { background: var(--farbe-flaeche); color: var(--farbe-text-leise); }
+
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 6px 10px 6px 0; vertical-align: top; border-bottom: 1px solid var(--farbe-linie); }
+th { font-weight: 600; color: var(--farbe-text-leise); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.tabellenrahmen { overflow-x: auto; }
+
+.bilderreihe { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.bilderreihe img {
+  width: 120px; height: 120px; object-fit: contain;
+  border: 1px solid var(--farbe-linie); border-radius: 6px; background: var(--farbe-flaeche);
+}
+
+ul.hinweise { margin: 10px 0 0; padding-left: 18px; color: var(--farbe-text-leise); font-size: 14px; }
+
+pre.rohdaten {
+  background: #101317; color: #e6e9ee; padding: 12px; border-radius: 6px;
+  font-size: 12px; line-height: 1.45; overflow-x: auto; max-height: 320px;
+}
+
+.werkzeugleiste { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 24px; }
+.werkzeugleiste a {
+  border: 1px solid var(--farbe-linie); border-radius: 999px; padding: 5px 14px;
+  font-size: 13px; text-decoration: none; color: var(--farbe-text);
+}
+.werkzeugleiste a.aktiv { border-color: var(--farbe-akzent); color: var(--farbe-akzent); background: var(--farbe-akzent-leise); }
+
+.kopfzeile { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }

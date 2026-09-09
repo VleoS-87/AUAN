@@ -1,0 +1,31 @@
+{
+  "name": "auan",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AUAN - Angebotsmappen der Badausstellungen der Unternehmensgruppe Pietsch",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "node scripts/oxomi-kalibrierung.ts; node scripts/oxomi-nachweis.ts; next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types \"tests/*.test.ts\"",
+    "kalibrieren": "node --experimental-strip-types scripts/oxomi-kalibrierung.ts",
+    "nachweis": "node --experimental-strip-types scripts/oxomi-nachweis.ts"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "next": "^16.3.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "typescript": "^5.9.0"
+  }
+}

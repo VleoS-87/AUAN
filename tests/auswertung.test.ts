@@ -1,0 +1,310 @@
+/**
+ * Auswertung einer OXOMI-Produktantwort.
+ *
+ * Die Testdaten sind gekuerzte, aber wortgetreue Ausschnitte aus der echten
+ * Antwort des Pietsch-Portals zum Artikel 083054001 (Geberit Renova Plan
+ * Waschtisch), aufgezeichnet im Kalibrierlauf vom 25.08.2026. Preisangaben
+ * sind bewusst hinzugefuegt, um die Preissperre mitzupruefen.
+ */
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { werteProduktAus, zerlegeMehrfachzeile } from '../lib/oxomi/auswertung.ts';
+import { entfernePreisfelder } from '../lib/oxomi/preissperre.ts';
+import type { OxomiProdukt } from '../lib/oxomi/endpunkte.ts';
+
+const NORMALISIERTER_TEXT = [
+  'Geberit Renova Plan Waschtisch',
+  'Verwendungszwecke',
+  'Zum Einbau in Sanitärräumen',
+  'Eigenschaften',
+  'Unterbaufähig',
+  'Reduzierte Randhöhe',
+  'Farbe / Oberfläche',
+  'Farbe: weiß',
+  'Technische Eigenschaften',
+  'Werkstoff: Sanitärkeramik',
+  'Hahnloch: mittig',
+  'Überlauf: sichtbar, symmetrisch',
+  'B / Breite (cm): 55 cm',
+  'H / Höhe (cm): 18 cm',
+  'T / Tiefe (cm): 44 cm',
+  'Befestigungspunkte: 2',
+  'Listenpreis: 249,00 EUR',
+].join('\n');
+
+const PRODUKT: OxomiProdukt = {
+  productId: 'LKJ1VGCKGFSD9C9RNR2HIQF3HK',
+  supplierNumber: '16060',
+  itemNumber: '501632001',
+  resolved: true,
+  queries: {
+    'product-images': {
+      type: 'json',
+      error: false,
+      images: [
+        {
+          type: 'COLORED_IMAGE',
+          typeName: 'Produktbild',
+          description: 'Produktbild',
+          filename: 'geb_d_1832254.eps',
+          iconUrl: 'https://oxomi.com/shared-media/epoch/x/oxomi/attachments/other.png',
+          downloadUrl: 'https://oxomi.com/dasd/pd/attachments/a/b/c/geb_d_1832254.eps',
+          previewImageUrl: 'https://oxomi.com/dasd/p/attachments/a/b/klein.jpg',
+          mediumImageUrl: 'https://oxomi.com/dasd/p/attachments/a/b/mittel.jpg',
+          hdImageUrl: 'https://oxomi.com/dasd/p/attachments/a/b/gross.jpg',
+          fingerprint: 'JQVKNRV049TA88O79J3BT2M9LS',
+          fileSizeInBytes: 1825294,
+        },
+        {
+          type: 'MEASURED_DRAWING',
+          typeName: 'Vermaßte Strichzeichnung',
+          description: 'Masszeichnung Draufsicht',
+          filename: 'gev_w_4212095.jpg',
+          hdImageUrl: 'https://oxomi.com/dasd/p/attachments/c/d/zeichnung.jpg',
+          fingerprint: '8A85G1MO5N1F85BJ2V7C9BN7EO',
+        },
+      ],
+    },
+    texts: {
+      type: 'json',
+      error: false,
+      texts: [
+        {
+          type: 'SHORT_DESCRIPTION',
+          typeName: 'Artikelkurzbeschreibung',
+          optimizedText:
+            'Geberit Renova Plan Waschtisch: 55x44cm, Hahnloch=mittig, Überlauf=sichtbar, symmetrisch, weiß',
+        },
+        {
+          type: 'DESCRIPTION',
+          typeName: 'Artikelbeschreibung (HTML)',
+          optimizedText: '<span>Geberit Renova Plan Waschtisch</span>',
+          normalizedText: NORMALISIERTER_TEXT,
+        },
+      ],
+    },
+    attachments: { type: 'json', error: false, attachments: [] },
+  },
+};
+
+test('erkennt den Treffer und die OXOMI-Kennung', () => {
+  const a = werteProduktAus(PRODUKT);
+  assert.equal(a.gefunden, true);
+  assert.equal(a.bezeichnung?.startsWith('Geberit Renova Plan Waschtisch'), true);
+  assert.equal(a.hersteller, 'Geberit');
+});
+
+test('nimmt die hoechste Bildaufloesung und haelt die Originaldatei fest', () => {
+  const a = werteProduktAus(PRODUKT);
+  const produktbild = a.bilder.find((b) => !b.istMasszeichnung);
+  assert.equal(produktbild?.url, 'https://oxomi.com/dasd/p/attachments/a/b/gross.jpg');
+  assert.equal(produktbild?.originalUrl, 'https://oxomi.com/dasd/pd/attachments/a/b/c/geb_d_1832254.eps');
+  assert.equal(produktbild?.art, 'Produktbild');
+});
+
+test('trennt Maßzeichnungen vom Produktbild und sortiert sie nach hinten', () => {
+  const a = werteProduktAus(PRODUKT);
+  assert.equal(a.bilder.length, 2);
+  assert.equal(a.bilder[0].istMasszeichnung, false);
+  assert.equal(a.bilder[1].istMasszeichnung, true);
+  assert.equal(a.bilder[1].titel, 'Masszeichnung Draufsicht');
+});
+
+test('liest die Merkmale aus dem Beschreibungstext', () => {
+  const a = werteProduktAus(PRODUKT);
+  const alsKarte = Object.fromEntries(a.fakten.map((f) => [f.name, f.wert]));
+
+  assert.equal(alsKarte['Farbe'], 'weiß');
+  assert.equal(alsKarte['Werkstoff'], 'Sanitärkeramik');
+  assert.equal(alsKarte['Hahnloch'], 'mittig');
+  assert.equal(alsKarte['Befestigungspunkte'], '2');
+});
+
+test('kuerzt die Beschriftung, laesst den Wert aber unangetastet', () => {
+  const a = werteProduktAus(PRODUKT);
+  const breite = a.fakten.find((f) => f.name === 'Breite');
+  assert.ok(breite, '"B / Breite (cm)" muss zu "Breite" werden');
+  assert.equal(breite.wert, '55 cm', 'der Wert bleibt genau so, wie OXOMI ihn liefert');
+});
+
+test('haelt Preisangaben aus den Fakten heraus', () => {
+  const a = werteProduktAus(PRODUKT);
+  assert.equal(
+    a.fakten.some((f) => /preis/i.test(f.name)),
+    false,
+    'kein Preisfeld darf als Fakt durchkommen',
+  );
+  assert.equal(
+    a.fakten.some((f) => f.wert.includes('249')),
+    false,
+    'kein Preisbetrag darf als Wert durchkommen',
+  );
+});
+
+test('die Preissperre greift schon auf der Rohantwort', () => {
+  const roh = {
+    products: [{ itemNumber: '501632001', listPrice: 249, attributes: [{ name: 'Breite', value: '55 cm' }] }],
+  };
+  const sauber = JSON.stringify(entfernePreisfelder(roh));
+  assert.ok(!sauber.includes('249'));
+  assert.ok(sauber.includes('55 cm'));
+});
+
+test('freie Eigenschaften landen getrennt von den Merkmalen', () => {
+  const a = werteProduktAus(PRODUKT);
+  assert.ok(a.eigenschaften.includes('Unterbaufähig'));
+  assert.ok(a.eigenschaften.includes('Reduzierte Randhöhe'));
+  assert.equal(
+    a.fakten.some((f) => f.name === 'Unterbaufähig'),
+    false,
+  );
+});
+
+test('ein nicht aufgeloester Artikel liefert nichts', () => {
+  const a = werteProduktAus({ itemNumber: '999', resolved: false, queries: {} });
+  assert.equal(a.gefunden, false);
+  assert.equal(a.bilder.length, 0);
+  assert.equal(a.fakten.length, 0);
+});
+
+test('zerlegt eine Komma-Kette in einzelne Merkmale', () => {
+  const teile = zerlegeMehrfachzeile(
+    'Artikelnummer: 5660R001, EAN Nummer: 4051202285432, Kollektion: O.novo, Form: Oval',
+  );
+  assert.deepEqual(teile, [
+    'Artikelnummer: 5660R001',
+    'EAN Nummer: 4051202285432',
+    'Kollektion: O.novo',
+    'Form: Oval',
+  ]);
+});
+
+test('trennt nicht innerhalb eines Werts', () => {
+  assert.deepEqual(zerlegeMehrfachzeile('Farbe: weiß, matt'), ['Farbe: weiß, matt']);
+  assert.deepEqual(zerlegeMehrfachzeile('Nur ein Text ohne Merkmal'), ['Nur ein Text ohne Merkmal']);
+});
+
+test('liest Merkmale auch aus einer HTML-Beschreibung ohne normalizedText', () => {
+  const a = werteProduktAus({
+    itemNumber: '5660R001',
+    resolved: true,
+    queries: {
+      texts: {
+        type: 'json',
+        error: false,
+        texts: [
+          {
+            type: 'DESCRIPTION',
+            typeName: 'Artikelbeschreibung (HTML)',
+            optimizedText:
+              '<ul><li>Kollektion: O.novo, Form: Oval, Eigenschaften</li><li>Material: Sanitärkeramik</li></ul>',
+          },
+        ],
+      },
+    },
+  });
+  const alsKarte = Object.fromEntries(a.fakten.map((f) => [f.name, f.wert]));
+  assert.equal(alsKarte['Kollektion'], 'O.novo');
+  assert.equal(alsKarte['Material'], 'Sanitärkeramik');
+  assert.equal(alsKarte['Form'], 'Oval', 'die angehaengte Ueberschrift muss abgeschnitten sein');
+});
+
+test('ein Merkmalsname traegt kein Komma', () => {
+  const a = werteProduktAus({
+    itemNumber: '5660R001',
+    resolved: true,
+    queries: {
+      texts: {
+        type: 'json',
+        error: false,
+        texts: [
+          {
+            type: 'DESCRIPTION',
+            normalizedText: '5660R001, EAN Nummer: 4051202285432',
+          },
+        ],
+      },
+    },
+  });
+  assert.equal(a.fakten[0]?.name, 'EAN Nummer');
+  assert.equal(a.fakten[0]?.wert, '4051202285432');
+});
+
+// ---------------------------------------------------------------------------
+// Klassifikation und Merkmale
+//
+// Die Testdaten sind ein wortgetreuer Ausschnitt der echten Antwort des
+// Pietsch-Portals zum Geberit Renova Plan Waschtisch, gemessen am 25.08.2026.
+// ---------------------------------------------------------------------------
+
+const MIT_KLASSIFIKATION: OxomiProdukt = {
+  supplierNumber: '16060',
+  itemNumber: '501632001',
+  resolved: true,
+  queries: {
+    features: {
+      type: 'json',
+      error: false,
+      class: { code: 'EC011550', name: 'Waschbecken', system: 'metaclass' },
+      features: [
+        { code: 'EF004567', system: 'metaclass', name: 'Breite/Durchmesser', value: '550 mm' },
+        { code: 'EF000049', system: 'metaclass', name: 'Tiefe', value: '440 mm' },
+        { code: 'EF000003', system: 'metaclass', name: 'Montageart', value: 'Wand' },
+        { code: 'EF002169', system: 'metaclass', name: 'Werkstoff', value: 'Keramik' },
+        { code: 'EF000007', system: 'metaclass', name: 'Farbe', value: 'weiß' },
+        { code: 'EF999999', system: 'metaclass', name: 'Listenpreis', value: '249,00 EUR' },
+        { code: 'EF000000', system: 'metaclass', name: 'Ohne Wert', value: '' },
+      ],
+    },
+    texts: {
+      type: 'json',
+      error: false,
+      texts: [{ type: 'DESCRIPTION', normalizedText: 'Technische Eigenschaften\nFarbe: grau' }],
+    },
+  },
+};
+
+test('liest die Klassifikation mit Schluessel und System', () => {
+  const a = werteProduktAus(MIT_KLASSIFIKATION);
+  assert.equal(a.klassifikation?.code, 'EC011550');
+  assert.equal(a.klassifikation?.bezeichnung, 'Waschbecken');
+  assert.equal(a.klassifikation?.system, 'metaclass');
+});
+
+test('nimmt die Merkmale der Klassifikation unveraendert, mit Schluessel', () => {
+  const a = werteProduktAus(MIT_KLASSIFIKATION);
+  const breite = a.fakten.find((f) => f.name === 'Breite/Durchmesser');
+  assert.equal(breite?.wert, '550 mm');
+  assert.equal(breite?.code, 'EF004567');
+  assert.equal(breite?.herkunft, 'klassifikation');
+});
+
+test('die Klassifikation hat Vorrang vor dem Beschreibungstext', () => {
+  const a = werteProduktAus(MIT_KLASSIFIKATION);
+  const farbe = a.fakten.find((f) => f.name === 'Farbe');
+  assert.equal(farbe?.wert, 'weiß', 'der Wert der Klassifikation gewinnt, nicht der Text');
+  assert.ok(
+    a.fakten.every((f) => f.herkunft === 'klassifikation'),
+    'solange die Klassifikation Merkmale liefert, wird der Text nicht angefasst',
+  );
+});
+
+test('auch in der Klassifikation greift die Preissperre', () => {
+  const a = werteProduktAus(MIT_KLASSIFIKATION);
+  assert.equal(
+    a.fakten.some((f) => /preis/i.test(f.name) || f.wert.includes('249')),
+    false,
+  );
+});
+
+test('Merkmale ohne Wert werden ausgelassen', () => {
+  const a = werteProduktAus(MIT_KLASSIFIKATION);
+  assert.equal(a.fakten.some((f) => f.name === 'Ohne Wert'), false);
+});
+
+test('ohne Klassifikation springt der Beschreibungstext ein', () => {
+  const a = werteProduktAus(PRODUKT);
+  assert.equal(a.klassifikation, null);
+  assert.ok(a.fakten.length > 0);
+  assert.ok(a.fakten.every((f) => f.herkunft === 'beschreibungstext'));
+});
